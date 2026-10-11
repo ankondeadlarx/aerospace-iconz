@@ -5,7 +5,7 @@ workspace as a pill of the app icons on it. Click a pill to switch to that works
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/pills-dark.png">
-  <img alt="Workspaces 1, 2 and 5 as pills of app icons, with workspace 2 highlighted as focused" src="docs/pills-light.png">
+  <img alt="Workspaces 1 to 5 as pills of app icons, one app on each, with workspace 2 highlighted as focused" src="docs/pills-light.png">
 </picture>
 
 - **Updates instantly** when you switch workspaces, open or close apps, or move windows.

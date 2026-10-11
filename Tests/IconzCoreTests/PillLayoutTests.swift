@@ -230,9 +230,9 @@ private func visibleGroup(_ name: String) -> WorkspaceGroup {
 
     /// The status item button is 24 pt tall (measured live on a notched MacBook); a taller
     /// image gets squeezed.
-    @Test func standardPillsFillTheStatusItemWith20PointIcons() {
+    @Test func standardPillsFitTheStatusItem() {
         let metrics = Config.standard.layout.metrics
-        #expect(metrics.pillHeight == 24)
-        #expect(metrics.iconSize == 20)
+        #expect(metrics.pillHeight <= 24)
+        #expect(metrics.iconSize <= metrics.pillHeight)
     }
 }

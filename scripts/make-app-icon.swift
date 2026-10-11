@@ -2,14 +2,15 @@
 // Then: iconutil -c icns <out.iconset> -o Resources/AppIcon.icns  (see `make icon`).
 //
 // The focused workspace pill "2" with three app tiles, floating on a Sequoia-style gradient.
-// Geometry is the menu bar pill spec (DESIGN.md › Visual style) scaled by k canvas px per pt,
-// on Apple's 1024 icon grid (824 body). Chosen in the prototype on branch prototype/app-icon.
+// Geometry is v1's menu bar pill (16 pt icons, 20 pt tall; the bar now uses 20 pt / 24 pt),
+// scaled by k canvas px per pt on Apple's 1024 icon grid (824 body). Chosen in the prototype
+// on branch prototype/app-icon.
 import AppKit
 import CoreText
 
 let canvas: CGFloat = 1024
 let k: CGFloat = 9.5          // canvas px per menu bar pt
-let labelScale: CGFloat = 1.45 // label drawn larger than the bar's 11 pt so it reads at icon size
+let labelScale: CGFloat = 1.45 // label drawn larger than v1's 11 pt so it reads at icon size
 
 func rgb(_ hex: UInt32, _ a: CGFloat = 1) -> CGColor {
     CGColor(srgbRed: CGFloat(hex >> 16 & 0xff) / 255, green: CGFloat(hex >> 8 & 0xff) / 255,

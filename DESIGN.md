@@ -32,9 +32,9 @@ Hard requirements; everything below is how they're met.
 - App icon (seen in Launchpad, Finder, Spotlight, Login Items; never in the Dock): the
   focused pill "2" with three app tiles (orange, blue, purple), floating on a navy-to-plum
   gradient with a coral glow, no menu bar band. The pill uses v1's pill proportions
-  (16 pt icons, 20 pt tall) at 9.5 px per pt on the 1024 grid, label at 1.45× its bar size; neighbouring
-  pills would fall outside the squircle, so only the focused one shows. Chosen from a
-  two-round prototype kept on branch `prototype/app-icon`.
+  (16 pt icons, 20 pt tall) at 9.5 px per pt on the 1024 grid, label at 1.45× v1's 11 pt;
+  neighbouring pills would fall outside the squircle, so only the focused one shows. Chosen
+  from a two-round prototype kept on branch `prototype/app-icon`.
 - Fixed `autosaveName` so the position survives restarts, Cmd-drag and Ice.
   AeroSpace's own tray icon goes in Ice's "Always Hidden" section (manual step).
 
@@ -88,7 +88,7 @@ Everything goes through the public `aerospace` CLI.
     order); an app that leaves and comes back goes to the end.
   - Max 4 icons per pill, then `+N`.
   - Every window in `list-windows` counts (floating, minimized, hidden).
-- **Width budget:** if the total width exceeds `maxTotalWidth` (500 pt; 400 with v1's 16 pt icons), lower the
+- **Width budget:** if the total width exceeds `maxTotalWidth` (500 pt), lower the
   per-pill icon cap for non-focused pills 4 → 3 → 2 → 1 until it fits. The focused pill keeps 4.
 - **Mode badge:** while AeroSpace's binding mode is not in `hiddenModes` (default `main`),
   a badge pill with the mode name comes before the first workspace pill. It counts toward
