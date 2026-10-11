@@ -7,6 +7,7 @@ import ServiceManagement
 @MainActor
 final class StatusController: NSObject {
     private let config: Config
+    private let icons = IconCache()
     private let renderer: PillRenderer
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var state: BarState = .unavailable
@@ -15,19 +16,17 @@ final class StatusController: NSObject {
     private var appearanceObservation: NSKeyValueObservation?
     private var iconRetry: Task<Void, Never>?
     private var iconRetriesLeft = 0
-    /// From the click that asks for a menu until it closes. The window menu is read first and
-    /// shown on a later run loop pass, so a click in between must not open a second one.
-    private var isMenuOpening = false
+    private var menuGate = MenuGate()
 
     var onSelect: ((Selection) -> Void)?
     var onRefresh: (() -> Void)?
     var readWindowMenu: ((WorkspaceName) async -> WindowMenu)?
     /// A window menu row was chosen: focus that window, on that workspace.
-    var onChooseWindow: ((Int, WorkspaceName) -> Void)?
+    var onChooseWindow: ((WindowId, WorkspaceName) -> Void)?
 
     init(config: Config) {
         self.config = config
-        renderer = PillRenderer(config: config, icons: IconCache())
+        renderer = PillRenderer(config: config, icons: icons)
         layout = renderer.layout(for: .unavailable)
         super.init()
 
@@ -85,11 +84,10 @@ final class StatusController: NSObject {
     /// Shows the menu, with `workspace`'s windows on top (read first) when there is one.
     /// Ignored while another menu is opening or open.
     private func openMenu(for workspace: WorkspaceName?) {
-        guard !isMenuOpening else { return }
-        isMenuOpening = true
+        guard menuGate.requestMenu() else { return }
         guard let workspace, let readWindowMenu else {
             showMenu(windows: nil)
-            isMenuOpening = false
+            menuGate.menuClosed()
             return
         }
         Task { [weak self] in
@@ -99,7 +97,7 @@ final class StatusController: NSObject {
             RunLoop.main.perform(inModes: [.default]) {
                 MainActor.assumeIsolated {
                     self?.showMenu(windows: windows)
-                    self?.isMenuOpening = false
+                    self?.menuGate.menuClosed()
                 }
             }
         }
@@ -137,12 +135,11 @@ final class StatusController: NSObject {
     }
 
     private struct ChosenWindow {
-        var id: Int
+        var id: WindowId
         var workspace: WorkspaceName
     }
 
     private func menuIcon(for app: AppRef) -> NSImage {
-        let icons = renderer.icons
         let icon = (icons.icon(for: app) ?? icons.fallback).copy() as! NSImage
         icon.size = NSSize(width: config.windowMenuIconSize, height: config.windowMenuIconSize)
         return icon

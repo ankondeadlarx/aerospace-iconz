@@ -35,12 +35,12 @@ struct CLIClient: AeroSpaceClient {
         _ = try await run(["workspace", workspace.rawValue])
     }
 
-    func focusedWindowId() async throws -> Int? {
+    func focusedWindowId() async throws -> WindowId? {
         try CLIParsing.focusedWindowId(from: try await run(CLIParsing.listFocusedWindowArguments))
     }
 
-    func focus(windowId: Int) async throws {
-        _ = try await run(["focus", "--window-id", String(windowId)])
+    func focus(windowId: WindowId) async throws {
+        _ = try await run(["focus", "--window-id", String(windowId.rawValue)])
     }
 
     func windows(on workspace: WorkspaceName) async throws -> [TitledWindow] {

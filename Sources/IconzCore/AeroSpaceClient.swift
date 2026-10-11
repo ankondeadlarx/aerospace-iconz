@@ -8,9 +8,9 @@ public protocol AeroSpaceClient: Sendable {
     func events() -> AsyncStream<AeroSpaceEvent>
     func focus(workspace: WorkspaceName) async throws
     /// The focused window's id, or `nil` if no window has focus.
-    func focusedWindowId() async throws -> Int?
+    func focusedWindowId() async throws -> WindowId?
     /// Focuses a window, switching to its workspace.
-    func focus(windowId: Int) async throws
+    func focus(windowId: WindowId) async throws
     /// The windows on `workspace`, with titles. Read only when its window menu opens.
     func windows(on workspace: WorkspaceName) async throws -> [TitledWindow]
 }

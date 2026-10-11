@@ -8,6 +8,18 @@ public struct WorkspaceName: Hashable, Sendable, ExpressibleByStringLiteral, Cus
     public var description: String { rawValue }
 }
 
+/// A window as AeroSpace numbers it. Higher ids are newer windows.
+public struct WindowId: Hashable, Comparable, Sendable, Decodable, ExpressibleByIntegerLiteral, CustomStringConvertible {
+    public let rawValue: Int
+
+    public init(_ rawValue: Int) { self.rawValue = rawValue }
+    public init(integerLiteral value: Int) { self.init(value) }
+    public init(from decoder: any Decoder) throws { self.init(try decoder.singleValueContainer().decode(Int.self)) }
+
+    public static func < (lhs: WindowId, rhs: WindowId) -> Bool { lhs.rawValue < rhs.rawValue }
+    public var description: String { String(rawValue) }
+}
+
 /// Identifies an app for deduping and icon caching: its bundle id, or its name when it has none.
 public struct AppKey: Hashable, Sendable {
     public let rawValue: String
@@ -19,13 +31,13 @@ public struct AppKey: Hashable, Sendable {
 
 /// One window as reported by `aerospace list-windows`.
 public struct WindowInfo: Equatable, Sendable {
-    public var id: Int
+    public var id: WindowId
     public var appBundleId: String?
     public var appName: String
     public var appPid: Int32
     public var workspace: WorkspaceName
 
-    public init(id: Int, appBundleId: String?, appName: String, appPid: Int32, workspace: WorkspaceName) {
+    public init(id: WindowId, appBundleId: String?, appName: String, appPid: Int32, workspace: WorkspaceName) {
         self.id = id
         self.appBundleId = appBundleId
         self.appName = appName

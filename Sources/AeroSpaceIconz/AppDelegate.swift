@@ -20,7 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { await self?.coordinator.select(selection) }
         }
         status.onRefresh = { [weak self] in self?.coordinator.nudge() }
-        status.readWindowMenu = { [coordinator] workspace in await coordinator!.windowMenu(for: workspace) }
+        status.readWindowMenu = { [weak self] workspace in
+            await self?.coordinator.windowMenu(for: workspace) ?? .unreadable(workspace)
+        }
         status.onChooseWindow = { [weak self] id, workspace in
             Task { await self?.coordinator.focus(windowId: id, on: workspace) }
         }

@@ -20,22 +20,35 @@ enum DebugRender {
 
     /// If `flag <argument>` was passed, runs `body` with the argument and exits with its status.
     private static func run(_ flag: String, _ body: @escaping @MainActor (String, Config, CLIClient) async -> Int32) {
-        let arguments = CommandLine.arguments
-        guard let index = arguments.firstIndex(of: flag), index + 1 < arguments.count else { return }
-        let argument = arguments[index + 1]
+        guard let argument = value(after: flag) else { return }
         let config = Config.standard
         let client = CLIClient(candidates: config.aerospaceExecutableCandidates, timeout: config.cliTimeout)
         Task { @MainActor in exit(await body(argument, config, client)) }
         NSApplication.shared.run()
     }
 
+    /// The command-line argument after `flag`, if both were passed.
+    private static func value(after flag: String) -> String? {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: flag), index + 1 < arguments.count else { return nil }
+        return arguments[index + 1]
+    }
+
+    /// A coordinator on the live AeroSpace, as the app sets one up.
+    private static func makeCoordinator(
+        _ config: Config, _ client: CLIClient, publish: @escaping @MainActor (BarState) -> Void = { _ in }
+    ) -> RefreshCoordinator {
+        RefreshCoordinator(
+            client: client, timing: config.timing, maxTitleLength: config.windowMenuTitleLength, publish: publish
+        )
+    }
+
     private static func renderPNGs(into path: String, config: Config, client: CLIClient) async -> Int32 {
         let directory = URL(fileURLWithPath: path)
-        let arguments = CommandLine.arguments
-        let modeOverride = arguments.firstIndex(of: "--mode").flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
+        let modeOverride = value(after: "--mode")
 
         var state = BarState.unavailable
-        await RefreshCoordinator(client: client, timing: config.timing) { state = $0 }.refresh()
+        await makeCoordinator(config, client) { state = $0 }.refresh()
         if state == .unavailable { print("AeroSpace not reachable: rendering the placeholder.") }
         if let modeOverride, case .workspaces(let groups, _) = state { state = .workspaces(groups, mode: modeOverride) }
 
@@ -56,9 +69,7 @@ enum DebugRender {
     }
 
     private static func printWindowMenu(for workspace: String, config: Config, client: CLIClient) async -> Int32 {
-        let coordinator = RefreshCoordinator(
-            client: client, timing: config.timing, maxTitleLength: config.windowMenuTitleLength
-        ) { _ in }
+        let coordinator = makeCoordinator(config, client)
         // A refresh first, so rows follow the pill's icon order as in the app.
         await coordinator.refresh()
         let menu = await coordinator.windowMenu(for: WorkspaceName(workspace))

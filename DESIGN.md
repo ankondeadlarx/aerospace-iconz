@@ -83,9 +83,9 @@ Everything goes through the public `aerospace` CLI.
   a stuck `aerospace` can't hold it back long): windows not read by then make it unreadable;
   a focus not read by then, or failed, only leaves nothing checked. A late call keeps running
   until `cliTimeout` kills it, and its answer is dropped. From the click that asks for a menu
-  until it closes, further menu clicks are ignored (the status item holds this, since the menu
-  pops up a run loop pass after the read), so repeated clicks open one menu. Costs nothing
-  while idle.
+  until it closes, further menu clicks are ignored (`MenuGate`, held by the status item, since
+  the menu pops up a run loop pass after the read), so repeated clicks open one menu. Costs
+  nothing while idle.
 
 ## What's shown
 
@@ -139,7 +139,8 @@ Exact values live in `Config.swift`.
   be read, it counts as not focused. If the app has no window there any more, or the focus
   fails, switch to the workspace instead. Label, padding and gaps still switch.
   Each click reads focus on its own, so a fast double-click advances one window, not two.
-- Left-click `+N` (with half the icon gap on each side, like an icon) → that pill's window menu.
+- Left-click `+N` (with half the icon gap on each side, like an icon) → that pill's window
+  menu.
 - Right-click or Ctrl-click → menu. On a pill (found the way a left-click finds it: gaps to
   the nearer pill, past either end to the end pill) the menu starts with that workspace's
   windows; on the mode badge or the placeholder it has only the global items:
@@ -168,19 +169,22 @@ Exact values live in `Config.swift`.
   (e.g. subscription process tracking).
 - Modules:
   - `IconzCore` (pure, no AppKit), built test-first:
-    - `Snapshot`: what AeroSpace reports (`WorkspaceInfo`, `WindowInfo`), plus the
-      `WorkspaceName` and `AppKey` (bundle id, else app name) types. The binding mode is
-      read separately and travels in `BarState`.
+    - `Snapshot`: what AeroSpace reports (`WorkspaceInfo`, `WindowInfo`, and `TitledWindow`
+      for the window menu), plus the `WorkspaceName`, `WindowId` and `AppKey` (bundle id,
+      else app name) types. The binding mode is read separately and travels in `BarState`.
     - `CLIParsing`: CLI arguments and JSON decoding; `LineSplitter` for the `subscribe` stream.
     - `WorkspaceReducer`: snapshot → workspace groups (filtering, dedupe, stable icon order).
     - `PillLayout`: groups or unavailable state → pills with every position (mode badge, `+N`,
       width-fit, hit-testing: a `Selection` (workspace or app icon) or `+N`'s window menu; and
-      the workspace a right-click lands on). The placeholder and the badge have no workspace, so clicks on them do nothing.
+      the workspace a right-click lands on). The placeholder and the badge have no workspace:
+      a left-click on them does nothing, a right-click opens only the global items.
     - `WindowMenu`: a workspace's titled windows → header, rows (order, label, truncation,
       focus) and the notice shown when there are none.
     - `RefreshCoordinator`: when to re-read (events, bursts, poll, pause reasons, reconnect
       backoff); publishes `BarState` on change; carries out selections (`select`: which
-      window to focus, or which workspace); reads window menus (`windowMenu(for:)`) with their timeout.
+      window to focus, or which workspace); reads window menus (`windowMenu(for:)`) within
+      `windowMenuTimeout`.
+    - `MenuGate`: one status item menu at a time, from the click until it closes.
     - `AeroSpaceClient` and `MonotonicClock` seams, `Config`.
   - `AeroSpaceIconz` (executable, AppKit, thin glue): `CLIClient` (runs the CLI with a
     timeout), `Subscriptions` (live `subscribe` children), `IconCache`, `PillRenderer`,
@@ -188,9 +192,9 @@ Exact values live in `Config.swift`.
     `SMAppService` status), `AppDelegate` (wiring, sleep/lock/app-quit notifications,
     SIGTERM), `DebugRender`.
 - Seam: `AeroSpaceClient` (`snapshot()`, `mode()`, `events()`, `focus(workspace:)`,
-  `focusedWindowId()`, `focus(windowId:)`, `windows(on:)`). The real implementation runs the CLI; tests
-  use a fake. Time goes through `MonotonicClock` (`SystemClock` in the app, a manually
-  advanced fake in tests).
+  `focusedWindowId()`, `focus(windowId:)`, `windows(on:)`). The real implementation runs the
+  CLI; tests use a fake. Time goes through `MonotonicClock` (`SystemClock` in the app, a
+  manually advanced fake in tests).
 - Debug: `AeroSpaceIconz --render-png <dir> [--mode <name>]` reads the live AeroSpace, renders
   the current state in light and dark appearance to PNGs in `<dir>` (created if needed),
   prints their paths and exits; it says so when AeroSpace wasn't reachable. `--mode`

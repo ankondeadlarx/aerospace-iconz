@@ -25,6 +25,7 @@ public struct Config: Sendable {
     public var menuVerticalOffset: Double
     /// Window titles longer than this many characters are cut in the middle.
     public var windowMenuTitleLength: Int
+    /// App icons in the window menu, in points (the standard menu image size).
     public var windowMenuIconSize: Double
 
     public var statusItemAutosaveName: String

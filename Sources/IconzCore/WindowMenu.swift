@@ -2,7 +2,7 @@ import Foundation
 
 /// One window in a pill's window menu.
 public struct WindowMenuRow: Equatable, Sendable {
-    public var windowId: Int
+    public var windowId: WindowId
     /// For the row's icon.
     public var app: AppRef
     /// The title, or the app name when it has none; cut in the middle when too long.
@@ -33,7 +33,7 @@ public struct WindowMenu: Equatable, Sendable {
     /// Rows in the pill's icon order, then window id. Apps not on the pill yet (new since its
     /// last read) come last, ordered by their oldest window, as the pill would add them.
     public init(
-        workspace: WorkspaceName, windows: [TitledWindow], iconOrder: [AppKey], focusedWindowId: Int?,
+        workspace: WorkspaceName, windows: [TitledWindow], iconOrder: [AppKey], focusedWindowId: WindowId?,
         maxTitleLength: Int
     ) {
         let byId = windows.sorted { $0.window.id < $1.window.id }

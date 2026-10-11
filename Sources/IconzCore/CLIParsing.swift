@@ -39,7 +39,7 @@ public enum CLIParsing {
     }
 
     /// The focused window's id, or `nil` if no window has focus.
-    public static func focusedWindowId(from data: Data) throws -> Int? {
+    public static func focusedWindowId(from data: Data) throws -> WindowId? {
         try JSONDecoder().decode([RawWindowId].self, from: data).first?.windowId
     }
 
@@ -49,7 +49,7 @@ public enum CLIParsing {
     }
 
     private struct RawWindow: Decodable {
-        var windowId: Int
+        var windowId: WindowId
         var appBundleId: String?
         var appName: String
         var appPid: Int32
@@ -96,7 +96,7 @@ public enum CLIParsing {
     }
 
     private struct RawWindowId: Decodable {
-        var windowId: Int
+        var windowId: WindowId
         enum CodingKeys: String, CodingKey { case windowId = "window-id" }
     }
 

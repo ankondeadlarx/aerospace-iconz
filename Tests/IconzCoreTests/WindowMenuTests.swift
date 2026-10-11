@@ -1,14 +1,14 @@
 import Testing
 @testable import IconzCore
 
-private func window(_ id: Int, _ app: String, _ title: String = "") -> TitledWindow {
+private func window(_ id: WindowId, _ app: String, _ title: String = "") -> TitledWindow {
     TitledWindow(WindowInfo(id: id, appBundleId: app, appName: app.uppercased(), appPid: 1, workspace: "1"), title: title)
 }
 
 private func key(_ app: String) -> AppKey { AppKey(bundleId: app, appName: app.uppercased()) }
 
 private func menu(
-    _ windows: [TitledWindow], order: [String] = [], focused: Int? = nil, maxTitleLength: Int = 60
+    _ windows: [TitledWindow], order: [String] = [], focused: WindowId? = nil, maxTitleLength: Int = 60
 ) -> WindowMenu {
     WindowMenu(workspace: "1", windows: windows, iconOrder: order.map(key), focusedWindowId: focused,
                maxTitleLength: maxTitleLength)

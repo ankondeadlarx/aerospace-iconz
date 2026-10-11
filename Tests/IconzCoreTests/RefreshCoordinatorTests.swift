@@ -8,6 +8,9 @@ private struct Unreachable: Error {}
 /// Each `events()` call opens a subscription the test feeds with `emit()` and ends with
 /// `endSubscription()`.
 private final class FakeClient: AeroSpaceClient, Sendable {
+    /// Reads a test can hold back with `hold(_:)` until it calls `release(_:)`.
+    enum Read: Hashable, Sendable { case snapshot, workspaceWindows, focusedWindow }
+
     private struct State {
         var current = Snapshot(workspaces: [WorkspaceInfo(name: "1", isFocused: true, isVisible: true)], windows: [])
         var failure: (any Error & Sendable)?
@@ -17,20 +20,18 @@ private final class FakeClient: AeroSpaceClient, Sendable {
         var modeFailure: (any Error & Sendable)?
         var modeCalls = 0
         var focused: [WorkspaceName] = []
-        var focusedWindow: Int?
+        var focusedWindow: WindowId?
         var focusedWindowFailure: (any Error & Sendable)?
         var windowFocusFailure: (any Error & Sendable)?
-        var focusedWindows: [Int] = []
+        var focusedWindows: [WindowId] = []
         var subscriptions: [AsyncStream<AeroSpaceEvent>.Continuation] = []
         var endedSubscriptions = 0
-        var isHolding = false
-        var held: [CheckedContinuation<Void, Never>] = []
-        var titled: [WorkspaceName: [TitledWindow]] = [:]
-        var titledFailure: (any Error & Sendable)?
-        var titledReads: [WorkspaceName] = []
+        var holding: Set<Read> = []
+        var held: [Read: [CheckedContinuation<Void, Never>]] = [:]
+        var workspaceWindows: [WorkspaceName: [TitledWindow]] = [:]
+        var workspaceWindowsFailure: (any Error & Sendable)?
+        var workspaceWindowReads: [WorkspaceName] = []
         var focusReads = 0
-        var isHoldingMenuReads = false
-        var heldMenuReads: [CheckedContinuation<Void, Never>] = []
     }
 
     private let state = Mutex(State())
@@ -60,7 +61,7 @@ private final class FakeClient: AeroSpaceClient, Sendable {
     var modeCalls: Int { state.withLock { $0.modeCalls } }
     var focused: [WorkspaceName] { state.withLock { $0.focused } }
     /// Answer for `focusedWindowId()`.
-    var focusedWindow: Int? {
+    var focusedWindow: WindowId? {
         get { state.withLock { $0.focusedWindow } }
         set { state.withLock { $0.focusedWindow = newValue } }
     }
@@ -73,31 +74,29 @@ private final class FakeClient: AeroSpaceClient, Sendable {
         set { state.withLock { $0.windowFocusFailure = newValue } }
     }
     /// Every `focus(windowId:)` call, failed ones included.
-    var focusedWindows: [Int] { state.withLock { $0.focusedWindows } }
+    var focusedWindows: [WindowId] { state.withLock { $0.focusedWindows } }
     /// Answer for `windows(on:)`, by workspace.
-    var titled: [WorkspaceName: [TitledWindow]] {
-        get { state.withLock { $0.titled } }
-        set { state.withLock { $0.titled = newValue } }
+    var workspaceWindows: [WorkspaceName: [TitledWindow]] {
+        get { state.withLock { $0.workspaceWindows } }
+        set { state.withLock { $0.workspaceWindows = newValue } }
     }
-    var titledFailure: (any Error & Sendable)? {
-        get { state.withLock { $0.titledFailure } }
-        set { state.withLock { $0.titledFailure = newValue } }
+    var workspaceWindowsFailure: (any Error & Sendable)? {
+        get { state.withLock { $0.workspaceWindowsFailure } }
+        set { state.withLock { $0.workspaceWindowsFailure = newValue } }
     }
     /// Every `windows(on:)` call.
-    var titledReads: [WorkspaceName] { state.withLock { $0.titledReads } }
+    var workspaceWindowReads: [WorkspaceName] { state.withLock { $0.workspaceWindowReads } }
     var focusReads: Int { state.withLock { $0.focusReads } }
     var subscriptionCount: Int { state.withLock { $0.subscriptions.count } }
     var openSubscriptionCount: Int { state.withLock { $0.subscriptions.count - $0.endedSubscriptions } }
 
     func snapshot() async throws -> Snapshot {
-        let (result, failure, clock, hold) = state.withLock { s in
+        let (result, failure, clock) = state.withLock { s in
             s.snapshotCalls += 1
-            return (s.current, s.failure, s.clock, s.isHolding)
+            return (s.current, s.failure, s.clock)
         }
         clock?.advance(by: .milliseconds(20))
-        if hold {
-            await withCheckedContinuation { continuation in state.withLock { $0.held.append(continuation) } }
-        }
+        await waitIfHeld(.snapshot)
         if let failure { throw failure }
         return result
     }
@@ -120,31 +119,38 @@ private final class FakeClient: AeroSpaceClient, Sendable {
 
     func focus(workspace: WorkspaceName) async throws { state.withLock { $0.focused.append(workspace) } }
 
-    func focusedWindowId() async throws -> Int? {
-        let (window, failure, hold) = state.withLock { s in
+    func focusedWindowId() async throws -> WindowId? {
+        let (window, failure) = state.withLock { s in
             s.focusReads += 1
-            return (s.focusedWindow, s.focusedWindowFailure, s.isHoldingMenuReads)
+            return (s.focusedWindow, s.focusedWindowFailure)
         }
-        if hold { await waitForMenuReadRelease() }
+        await waitIfHeld(.focusedWindow)
         if let failure { throw failure }
         return window
     }
 
     func windows(on workspace: WorkspaceName) async throws -> [TitledWindow] {
-        let (windows, failure, hold) = state.withLock { s in
-            s.titledReads.append(workspace)
-            return (s.titled[workspace] ?? [], s.titledFailure, s.isHoldingMenuReads)
+        let (windows, failure) = state.withLock { s in
+            s.workspaceWindowReads.append(workspace)
+            return (s.workspaceWindows[workspace] ?? [], s.workspaceWindowsFailure)
         }
-        if hold { await waitForMenuReadRelease() }
+        await waitIfHeld(.workspaceWindows)
         if let failure { throw failure }
         return windows
     }
 
-    private func waitForMenuReadRelease() async {
-        await withCheckedContinuation { continuation in state.withLock { $0.heldMenuReads.append(continuation) } }
+    private func waitIfHeld(_ read: Read) async {
+        await withCheckedContinuation { continuation in
+            let isHeld = state.withLock { s in
+                guard s.holding.contains(read) else { return false }
+                s.held[read, default: []].append(continuation)
+                return true
+            }
+            if !isHeld { continuation.resume() }
+        }
     }
 
-    func focus(windowId: Int) async throws {
+    func focus(windowId: WindowId) async throws {
         let failure = state.withLock { s in
             s.focusedWindows.append(windowId)
             return s.windowFocusFailure
@@ -157,25 +163,12 @@ private final class FakeClient: AeroSpaceClient, Sendable {
     func emit() { _ = state.withLock { $0.subscriptions.last }?.yield(AeroSpaceEvent()) }
     func endSubscription() { state.withLock { $0.subscriptions.last }?.finish() }
 
-    /// Snapshots started from now on wait for `releaseSnapshots()`.
-    func holdSnapshots() { state.withLock { $0.isHolding = true } }
-    /// `windows(on:)` and `focusedWindowId()` calls started from now on wait for
-    /// `releaseMenuReads()`.
-    func holdMenuReads() { state.withLock { $0.isHoldingMenuReads = true } }
-    func releaseMenuReads() {
+    /// These reads, started from now on, wait for `release(_:)`.
+    func hold(_ reads: Read...) { state.withLock { $0.holding.formUnion(reads) } }
+    func release(_ reads: Read...) {
         let held = state.withLock { s in
-            s.isHoldingMenuReads = false
-            defer { s.heldMenuReads = [] }
-            return s.heldMenuReads
-        }
-        held.forEach { $0.resume() }
-    }
-
-    func releaseSnapshots() {
-        let held = state.withLock { s in
-            s.isHolding = false
-            defer { s.held = [] }
-            return s.held
+            s.holding.subtract(reads)
+            return reads.flatMap { s.held.removeValue(forKey: $0) ?? [] }
         }
         held.forEach { $0.resume() }
     }
@@ -260,7 +253,9 @@ private func makeCoordinator(
     _ client: FakeClient, clock: any MonotonicClock = FakeClock(), timing: Timing = Config.standard.timing
 ) -> (RefreshCoordinator, Published) {
     let published = Published()
-    let coordinator = RefreshCoordinator(client: client, timing: timing, clock: clock) { published.states.append($0) }
+    let coordinator = RefreshCoordinator(
+        client: client, timing: timing, clock: clock, maxTitleLength: Config.standard.windowMenuTitleLength
+    ) { published.states.append($0) }
     return (coordinator, published)
 }
 
@@ -375,7 +370,7 @@ private func eventually(
     @Test func refreshRequestedMidFlightRunsOnceMoreAfterwards() async {
         let client = FakeClient()
         let (coordinator, published) = makeCoordinator(client)
-        client.holdSnapshots()
+        client.hold(.snapshot)
         let first = Task { await coordinator.refresh() }
         await eventually { client.snapshotCalls == 1 }
 
@@ -383,7 +378,7 @@ private func eventually(
         client.current.windows = [WindowInfo(id: 1, appBundleId: "a", appName: "A", appPid: 1, workspace: "1")]
         await coordinator.refresh()
         await coordinator.refresh()
-        client.releaseSnapshots()
+        client.release(.snapshot)
         await first.value
 
         #expect(client.snapshotCalls == 2)
@@ -515,7 +510,7 @@ private func eventually(
     // MARK: Window menu
 
     /// Workspace "1" as `clientWithWindows()` lists it, with titles.
-    private let titledOne = [
+    private let workspaceOneWindows = [
         TitledWindow(WindowInfo(id: 30, appBundleId: "a", appName: "A", appPid: 1, workspace: "1"), title: "A three"),
         TitledWindow(WindowInfo(id: 20, appBundleId: "b", appName: "B", appPid: 2, workspace: "1"), title: ""),
         TitledWindow(WindowInfo(id: 10, appBundleId: "a", appName: "A", appPid: 1, workspace: "1"), title: "A one"),
@@ -529,12 +524,12 @@ private func eventually(
 
     @Test func windowMenuListsTheWorkspacesWindowsInIconOrder() async {
         let client = clientWithWindows()
-        client.titled = ["1": titledOne]
+        client.workspaceWindows = ["1": workspaceOneWindows]
         client.focusedWindow = 30
         let coordinator = menuCoordinator(client)
         await coordinator.refresh()
         let menu = await coordinator.windowMenu(for: "1")
-        #expect(client.titledReads == ["1"])
+        #expect(client.workspaceWindowReads == ["1"])
         #expect(menu.workspace == "1")
         // The pill shows A (oldest window 10) before B (20).
         #expect(menu.rows.map(\.windowId) == [10, 30, 20])
@@ -547,7 +542,7 @@ private func eventually(
         let coordinator = menuCoordinator(client)
         await coordinator.refresh()
         let published = client.snapshotCalls
-        client.titled = ["1": [TitledWindow(WindowInfo(id: 99, appBundleId: "new", appName: "New", appPid: 9, workspace: "1"), title: "Fresh")]]
+        client.workspaceWindows = ["1": [TitledWindow(WindowInfo(id: 99, appBundleId: "new", appName: "New", appPid: 9, workspace: "1"), title: "Fresh")]]
         let menu = await coordinator.windowMenu(for: "1")
         #expect(menu.rows.map(\.label) == ["Fresh"])
         // Nothing re-read or republished for the menu.
@@ -556,14 +551,14 @@ private func eventually(
 
     @Test func failedWindowReadMakesAnUnreadableMenu() async {
         let client = clientWithWindows()
-        client.titledFailure = Unreachable()
+        client.workspaceWindowsFailure = Unreachable()
         let menu = await menuCoordinator(client).windowMenu(for: "1")
         #expect(menu == .unreadable("1"))
     }
 
     @Test func failedFocusReadOnlyLosesTheCheckmark() async {
         let client = clientWithWindows()
-        client.titled = ["1": titledOne]
+        client.workspaceWindows = ["1": workspaceOneWindows]
         client.focusedWindowFailure = Unreachable()
         let menu = await menuCoordinator(client).windowMenu(for: "1")
         #expect(menu.rows.count == 3)
@@ -572,25 +567,41 @@ private func eventually(
 
     @Test func windowAndFocusReadsRunTogether() async {
         let client = clientWithWindows()
-        client.holdMenuReads()
+        client.hold(.workspaceWindows, .focusedWindow)
         let coordinator = menuCoordinator(client)
         let reading = Task { await coordinator.windowMenu(for: "1") }
-        await eventually { client.titledReads.count == 1 && client.focusReads == 1 }
-        client.releaseMenuReads()
+        await eventually { client.workspaceWindowReads.count == 1 && client.focusReads == 1 }
+        client.release(.workspaceWindows, .focusedWindow)
         _ = await reading.value
     }
 
     @Test func slowWindowReadTimesOutAsUnreadable() async {
         let client = clientWithWindows()
-        client.titled = ["1": titledOne]
-        client.holdMenuReads()
+        client.workspaceWindows = ["1": workspaceOneWindows]
+        client.hold(.workspaceWindows, .focusedWindow)
         let clock = ManualClock()
         let coordinator = menuCoordinator(client, clock: clock)
         let reading = Task { await coordinator.windowMenu(for: "1") }
         await eventually { clock.pendingDeadlines.contains(Config.standard.timing.windowMenuTimeout) }
         clock.advance(by: Config.standard.timing.windowMenuTimeout)
         #expect(await reading.value == .unreadable("1"))
-        client.releaseMenuReads()
+        client.release(.workspaceWindows, .focusedWindow)
+    }
+
+    @Test func slowFocusReadOnlyLosesTheCheckmark() async {
+        let client = clientWithWindows()
+        client.workspaceWindows = ["1": workspaceOneWindows]
+        client.focusedWindow = 30
+        client.hold(.focusedWindow)
+        let clock = ManualClock()
+        let coordinator = menuCoordinator(client, clock: clock)
+        let reading = Task { await coordinator.windowMenu(for: "1") }
+        await eventually { clock.pendingDeadlines.contains(Config.standard.timing.windowMenuTimeout) }
+        clock.advance(by: Config.standard.timing.windowMenuTimeout)
+        let menu = await reading.value
+        #expect(menu.rows.map(\.windowId) == [10, 30, 20])
+        #expect(menu.rows.map(\.isFocused) == [false, false, false])
+        client.release(.focusedWindow)
     }
 
     @Test func choosingAWindowFocusesItThenRunsOneBurst() async {

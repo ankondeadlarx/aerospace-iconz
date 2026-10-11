@@ -8,6 +8,12 @@ public enum BarState: Equatable, Sendable {
     case unavailable
     /// `mode` is the binding mode, `nil` when unknown.
     case workspaces([WorkspaceGroup], mode: String? = nil)
+
+    /// The apps on `workspace`'s pill, in the order shown; empty if it has no pill.
+    public func iconOrder(of workspace: WorkspaceName) -> [AppKey] {
+        guard case .workspaces(let groups, _) = self else { return [] }
+        return groups.first { $0.workspace.name == workspace }?.apps.map(\.key) ?? []
+    }
 }
 
 /// Decides when to re-read AeroSpace and publishes the result when it changes.
@@ -48,7 +54,7 @@ public final class RefreshCoordinator {
 
     public init(
         client: any AeroSpaceClient, timing: Timing, clock: any MonotonicClock = SystemClock(),
-        maxTitleLength: Int = Config.standard.windowMenuTitleLength,
+        maxTitleLength: Int,
         publish: @escaping @MainActor (BarState) -> Void
     ) {
         self.client = client
@@ -119,7 +125,7 @@ public final class RefreshCoordinator {
 
     /// Focuses a window (a window menu row, or an icon's pick). Switches to `workspace` if
     /// that fails, e.g. because the window has closed since.
-    public func focus(windowId: Int, on workspace: WorkspaceName) async {
+    public func focus(windowId: WindowId, on workspace: WorkspaceName) async {
         do {
             try await client.focus(windowId: windowId)
             nudge()
@@ -134,27 +140,26 @@ public final class RefreshCoordinator {
     public func windowMenu(for workspace: WorkspaceName) async -> WindowMenu {
         let deadline = clock.now() + timing.windowMenuTimeout
         let client = client
-        async let focused = result(by: deadline) { try await client.focusedWindowId() }
-        guard case .success(let windows) = await result(by: deadline, { try await client.windows(on: workspace) }) else {
+        async let focused = withDeadline(deadline) { try await client.focusedWindowId() }
+        guard case .success(let windows) = await withDeadline(deadline, { try await client.windows(on: workspace) }) else {
+            // Waits for the focus read too (at most until the deadline): an `async let` must finish.
             _ = await focused
             return .unreadable(workspace)
         }
-        var iconOrder: [AppKey] = []
-        if case .workspaces(let groups, _) = lastState {
-            iconOrder = groups.first { $0.workspace.name == workspace }?.apps.map(\.key) ?? []
-        }
-        return WindowMenu(workspace: workspace, windows: windows, iconOrder: iconOrder,
-                          focusedWindowId: try? await focused.get(), maxTitleLength: maxTitleLength)
+        return WindowMenu(
+            workspace: workspace, windows: windows, iconOrder: lastState?.iconOrder(of: workspace) ?? [],
+            focusedWindowId: try? await focused.get(), maxTitleLength: maxTitleLength
+        )
     }
 
     private struct TimedOut: Error {}
 
-    /// `work`'s result, or `TimedOut` if it hasn't finished by `deadline`. A late `work` keeps
-    /// running (the CLI kills it at `cliTimeout`); its answer is dropped.
-    private func result<T: Sendable>(
-        by deadline: Duration, _ work: @escaping @Sendable () async throws -> T
+    /// Races `work` against `deadline`: its result, or `TimedOut` if it hasn't finished by then.
+    /// A late `work` keeps running (the CLI kills it at `cliTimeout`); its answer is dropped.
+    private func withDeadline<T: Sendable>(
+        _ deadline: Duration, _ work: @escaping @Sendable () async throws -> T
     ) async -> Result<T, any Error> {
-        let first = FirstResult<T>()
+        let first = FirstToFinish<T>()
         var timer: Task<Void, Never>?
         let result = await withCheckedContinuation { continuation in
             first.wait(continuation)
@@ -171,7 +176,7 @@ public final class RefreshCoordinator {
     }
 
     /// The window after the focused one in `ids` (wrapping), else the first.
-    private func nextWindow(among ids: [Int]) async -> Int? {
+    private func nextWindow(among ids: [WindowId]) async -> WindowId? {
         guard let first = ids.first else { return nil }
         guard let focused = try? await client.focusedWindowId(), let index = ids.firstIndex(of: focused) else {
             return first
@@ -265,7 +270,7 @@ public final class RefreshCoordinator {
 }
 
 /// Resumes one continuation with whichever result arrives first; later ones are dropped.
-private final class FirstResult<T: Sendable>: Sendable {
+private final class FirstToFinish<T: Sendable>: Sendable {
     private let continuation = Mutex<CheckedContinuation<Result<T, any Error>, Never>?>(nil)
 
     func wait(_ continuation: CheckedContinuation<Result<T, any Error>, Never>) {

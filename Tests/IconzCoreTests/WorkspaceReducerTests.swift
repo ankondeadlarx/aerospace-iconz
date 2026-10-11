@@ -5,7 +5,7 @@ private func ws(_ name: WorkspaceName, focused: Bool = false, visible: Bool = fa
     WorkspaceInfo(name: name, isFocused: focused, isVisible: visible || focused)
 }
 
-private func win(_ id: Int, _ app: String, on workspace: WorkspaceName, pid: Int32? = nil) -> WindowInfo {
+private func win(_ id: WindowId, _ app: String, on workspace: WorkspaceName, pid: Int32? = nil) -> WindowInfo {
     WindowInfo(id: id, appBundleId: app, appName: app, appPid: pid ?? Int32(app.hashValue & 0xFFFF), workspace: workspace)
 }
 
