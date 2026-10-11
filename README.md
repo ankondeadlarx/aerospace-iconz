@@ -30,7 +30,7 @@ workspace as a pill of the app icons on it. Click a pill to switch to that works
 ## Install
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/aerospace-iconz.git
+git clone https://github.com/ankondeadlarx/aerospace-iconz.git
 cd aerospace-iconz
 make install
 ```
