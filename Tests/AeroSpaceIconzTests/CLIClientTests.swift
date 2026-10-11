@@ -26,6 +26,8 @@ private func fakeAerospace(
         \(hang) echo '[{"workspace":"1","workspace-is-focused":true,"workspace-is-visible":true}]' ;;
       "list-modes --current --json")
         \(hang) \(modesFail ? "exit 1;" : "") echo '[{"mode-id":"service"}]' ;;
+      "list-windows --workspace 1 --json --format %{window-id} %{app-bundle-id} %{app-name} %{app-pid} %{window-title}")
+        echo '[{"app-bundle-id":"a.b","app-name":"A","app-pid":1,"window-id":5,"window-title":"Doc"}]' ;;
       "list-windows --focused --json --format %{window-id}")
         echo '[{"window-id":5}]' ;;
       "focus --window-id 5") ;;
@@ -82,6 +84,13 @@ private func makeClient(_ path: String, timeout: Duration = .seconds(5)) -> CLIC
     @Test func focusedWindowIdReadsTheFocusedWindow() async throws {
         let client = makeClient(try fakeAerospace())
         #expect(try await client.focusedWindowId() == 5)
+    }
+
+    @Test func windowsOnAWorkspaceReadsTheirTitles() async throws {
+        let client = makeClient(try fakeAerospace())
+        #expect(try await client.windows(on: "1") == [
+            TitledWindow(id: 5, appBundleId: "a.b", appName: "A", appPid: 1, title: "Doc"),
+        ])
     }
 
     @Test func focusWindowSucceedsWhenTheCommandDoes() async throws {

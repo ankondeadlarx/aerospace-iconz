@@ -45,8 +45,11 @@ AeroSpace has its own menu bar icon. If you want only this one, hide AeroSpace's
 
 ## Use
 
-- **Click** a pill to switch to that workspace.
-- **Right-click** (or Ctrl-click) for **Refresh**, **Launch at Login** and **Quit**.
+- **Click** a pill to switch to that workspace, or an app's icon to focus its window there
+  (click again to cycle through that app's windows).
+- **Right-click** (or Ctrl-click) a pill for a menu of that workspace's windows; choose one
+  to focus it. Clicking a pill's `+N` opens the same menu. Below the windows are **Refresh**,
+  **Launch at Login** and **Quit**.
 - While AeroSpace isn't running, the item shows a dimmed `–` and reconnects by itself
   once AeroSpace is back.
 

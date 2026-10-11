@@ -39,6 +39,36 @@ enum DebugRender {
         NSApplication.shared.run()
     }
 
+    /// `AeroSpaceIconz --print-window-menu <workspace>`: reads the live AeroSpace and prints that
+    /// workspace's window menu rows (focused mark, window id, label as shown), then exits. For
+    /// checking the menu's order and truncation against real titles without opening it.
+    static func printWindowMenuIfRequested() {
+        let arguments = CommandLine.arguments
+        guard let flag = arguments.firstIndex(of: "--print-window-menu"), flag + 1 < arguments.count else { return }
+        let workspace = WorkspaceName(arguments[flag + 1])
+        let config = Config.standard
+        let client = CLIClient(candidates: config.aerospaceExecutableCandidates, timeout: config.cliTimeout)
+
+        Task { @MainActor in
+            // A refresh first, so rows follow the pill's icon order as in the app.
+            let coordinator = RefreshCoordinator(client: client, timing: config.timing) { _ in }
+            await coordinator.refresh()
+            let menu = await coordinator.windowMenu(for: workspace, maxTitleLength: config.windowMenuTitleLength)
+            print("Workspace \(workspace)")
+            switch menu?.rows {
+            case nil:
+                print("  Couldn't read windows")
+                exit(1)
+            case []?:
+                print("  No windows")
+            case let rows?:
+                for row in rows { print("\(row.isFocused ? "✓" : " ") \(row.windowId)\t\(row.label)") }
+            }
+            exit(0)
+        }
+        NSApplication.shared.run()
+    }
+
     private struct EncodingFailed: Error {}
 
     private static func write(_ image: NSImage, appearance: NSAppearance, to url: URL) throws {

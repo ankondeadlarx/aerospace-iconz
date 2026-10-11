@@ -71,6 +71,8 @@ public enum ClickTarget: Equatable, Sendable {
     case workspace(WorkspaceName)
     /// An app's icon in that workspace's pill.
     case app(AppKey, on: WorkspaceName)
+    /// A pill's `+N`: opens that workspace's window menu.
+    case windowMenu(WorkspaceName)
 }
 
 /// Where a pill and each of its parts go, in points from the left of the image.
@@ -167,17 +169,34 @@ public struct PillLayout: Equatable, Sendable {
         totalWidth = x
     }
 
-    /// What a click at `x` acts on: an icon (with half the icon gap on each side), else its
-    /// pill's workspace. Gaps between pills are split down the middle; clicks past either
-    /// end go to the edge pill. The badge and the placeholder have no target.
+    /// What a click at `x` acts on: an icon or `+N` (each with half the icon gap on either
+    /// side), else its pill's workspace. Gaps between pills are split down the middle; clicks
+    /// past either end go to the edge pill. The badge and the placeholder have no target.
     public func target(atX x: Double) -> ClickTarget? {
         guard let index = pillIndex(atX: x), let workspace = pills[index].workspace else { return nil }
+        let frame = frames[index]
         let reach = metrics.iconGap / 2
-        for (icon, iconX) in zip(pills[index].icons, frames[index].iconXs)
+        for (icon, iconX) in zip(pills[index].icons, frame.iconXs)
         where x >= iconX - reach && x < iconX + metrics.iconSize + reach {
             return .app(icon.key, on: workspace)
         }
+        // `+N` runs to the pill's trailing padding.
+        if let overflowX = frame.overflowX,
+           x >= overflowX - reach && x < frame.x + frame.width - metrics.horizontalPadding + reach {
+            return .windowMenu(workspace)
+        }
         return .workspace(workspace)
+    }
+
+    /// The workspace of the pill a click at `x` lands on, found as `target(atX:)` finds it;
+    /// `nil` for the badge and the placeholder. For the right-click window menu.
+    public func workspace(atX x: Double) -> WorkspaceName? {
+        pillIndex(atX: x).flatMap { pills[$0].workspace }
+    }
+
+    /// `workspace(atX:)` for a click in the status item's button.
+    public func workspace(atButtonX x: Double, buttonWidth: Double) -> WorkspaceName? {
+        workspace(atX: imageX(atButtonX: x, buttonWidth: buttonWidth))
     }
 
     private func pillIndex(atX x: Double) -> Int? {
@@ -191,7 +210,11 @@ public struct PillLayout: Equatable, Sendable {
     /// `target(atX:)` for a click in the status item's button. The button can be wider than
     /// the image, which it draws centered.
     public func target(atButtonX x: Double, buttonWidth: Double) -> ClickTarget? {
-        target(atX: x - (buttonWidth - totalWidth) / 2)
+        target(atX: imageX(atButtonX: x, buttonWidth: buttonWidth))
+    }
+
+    private func imageX(atButtonX x: Double, buttonWidth: Double) -> Double {
+        x - (buttonWidth - totalWidth) / 2
     }
 }
 

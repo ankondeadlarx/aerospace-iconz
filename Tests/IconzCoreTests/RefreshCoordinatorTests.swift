@@ -25,6 +25,12 @@ private final class FakeClient: AeroSpaceClient, Sendable {
         var endedSubscriptions = 0
         var isHolding = false
         var held: [CheckedContinuation<Void, Never>] = []
+        var titled: [WorkspaceName: [TitledWindow]] = [:]
+        var titledFailure: (any Error & Sendable)?
+        var titledReads: [WorkspaceName] = []
+        var focusReads = 0
+        var isHoldingMenuReads = false
+        var heldMenuReads: [CheckedContinuation<Void, Never>] = []
     }
 
     private let state = Mutex(State())
@@ -68,6 +74,18 @@ private final class FakeClient: AeroSpaceClient, Sendable {
     }
     /// Every `focus(windowId:)` call, failed ones included.
     var focusedWindows: [Int] { state.withLock { $0.focusedWindows } }
+    /// Answer for `windows(on:)`, by workspace.
+    var titled: [WorkspaceName: [TitledWindow]] {
+        get { state.withLock { $0.titled } }
+        set { state.withLock { $0.titled = newValue } }
+    }
+    var titledFailure: (any Error & Sendable)? {
+        get { state.withLock { $0.titledFailure } }
+        set { state.withLock { $0.titledFailure = newValue } }
+    }
+    /// Every `windows(on:)` call.
+    var titledReads: [WorkspaceName] { state.withLock { $0.titledReads } }
+    var focusReads: Int { state.withLock { $0.focusReads } }
     var subscriptionCount: Int { state.withLock { $0.subscriptions.count } }
     var openSubscriptionCount: Int { state.withLock { $0.subscriptions.count - $0.endedSubscriptions } }
 
@@ -103,9 +121,27 @@ private final class FakeClient: AeroSpaceClient, Sendable {
     func focus(workspace: WorkspaceName) async throws { state.withLock { $0.focused.append(workspace) } }
 
     func focusedWindowId() async throws -> Int? {
-        let (window, failure) = state.withLock { ($0.focusedWindow, $0.focusedWindowFailure) }
+        let (window, failure, hold) = state.withLock { s in
+            s.focusReads += 1
+            return (s.focusedWindow, s.focusedWindowFailure, s.isHoldingMenuReads)
+        }
+        if hold { await waitForMenuReadRelease() }
         if let failure { throw failure }
         return window
+    }
+
+    func windows(on workspace: WorkspaceName) async throws -> [TitledWindow] {
+        let (windows, failure, hold) = state.withLock { s in
+            s.titledReads.append(workspace)
+            return (s.titled[workspace] ?? [], s.titledFailure, s.isHoldingMenuReads)
+        }
+        if hold { await waitForMenuReadRelease() }
+        if let failure { throw failure }
+        return windows
+    }
+
+    private func waitForMenuReadRelease() async {
+        await withCheckedContinuation { continuation in state.withLock { $0.heldMenuReads.append(continuation) } }
     }
 
     func focus(windowId: Int) async throws {
@@ -123,6 +159,18 @@ private final class FakeClient: AeroSpaceClient, Sendable {
 
     /// Snapshots started from now on wait for `releaseSnapshots()`.
     func holdSnapshots() { state.withLock { $0.isHolding = true } }
+    /// `windows(on:)` and `focusedWindowId()` calls started from now on wait for
+    /// `releaseMenuReads()`.
+    func holdMenuReads() { state.withLock { $0.isHoldingMenuReads = true } }
+    func releaseMenuReads() {
+        let held = state.withLock { s in
+            s.isHoldingMenuReads = false
+            defer { s.heldMenuReads = [] }
+            return s.heldMenuReads
+        }
+        held.forEach { $0.resume() }
+    }
+
     func releaseSnapshots() {
         let held = state.withLock { s in
             s.isHolding = false
@@ -464,6 +512,120 @@ private func eventually(
         #expect(client.snapshotCalls == 1 + 3)
     }
 
+    // MARK: Window menu
+
+    /// Workspace "1" as `clientWithWindows()` lists it, with titles.
+    private let titledOne = [
+        TitledWindow(id: 30, appBundleId: "a", appName: "A", appPid: 1, title: "A three"),
+        TitledWindow(id: 20, appBundleId: "b", appName: "B", appPid: 2, title: ""),
+        TitledWindow(id: 10, appBundleId: "a", appName: "A", appPid: 1, title: "A one"),
+    ]
+
+    /// A clock that never moves, so the window menu's timeout only fires when a test advances it.
+    private func menuCoordinator(_ client: FakeClient, clock: ManualClock = ManualClock()) -> RefreshCoordinator {
+        makeCoordinator(client, clock: clock).0
+    }
+
+    @Test func windowMenuListsTheWorkspacesWindowsInIconOrder() async {
+        let client = clientWithWindows()
+        client.titled = ["1": titledOne]
+        client.focusedWindow = 30
+        let coordinator = menuCoordinator(client)
+        await coordinator.refresh()
+        let menu = await coordinator.windowMenu(for: "1", maxTitleLength: 60)
+        #expect(client.titledReads == ["1"])
+        #expect(menu?.workspace == "1")
+        // The pill shows A (oldest window 10) before B (20).
+        #expect(menu?.rows?.map(\.windowId) == [10, 30, 20])
+        #expect(menu?.rows?.map(\.label) == ["A one", "A three", "B"])
+        #expect(menu?.rows?.map(\.isFocused) == [false, true, false])
+    }
+
+    @Test func windowMenuIsReadFreshNotFromTheModel() async {
+        let client = clientWithWindows()
+        let coordinator = menuCoordinator(client)
+        await coordinator.refresh()
+        let published = client.snapshotCalls
+        client.titled = ["1": [TitledWindow(id: 99, appBundleId: "new", appName: "New", appPid: 9, title: "Fresh")]]
+        let menu = await coordinator.windowMenu(for: "1", maxTitleLength: 60)
+        #expect(menu?.rows?.map(\.label) == ["Fresh"])
+        // Nothing re-read or republished for the menu.
+        #expect(client.snapshotCalls == published)
+    }
+
+    @Test func failedWindowReadMakesAnUnreadableMenu() async {
+        let client = clientWithWindows()
+        client.titledFailure = Unreachable()
+        let menu = await menuCoordinator(client).windowMenu(for: "1", maxTitleLength: 60)
+        #expect(menu == .unreadable("1"))
+    }
+
+    @Test func failedFocusReadOnlyLosesTheCheckmark() async {
+        let client = clientWithWindows()
+        client.titled = ["1": titledOne]
+        client.focusedWindowFailure = Unreachable()
+        let menu = await menuCoordinator(client).windowMenu(for: "1", maxTitleLength: 60)
+        #expect(menu?.rows?.count == 3)
+        #expect(menu?.rows?.contains(where: \.isFocused) == false)
+    }
+
+    @Test func windowAndFocusReadsRunTogether() async {
+        let client = clientWithWindows()
+        client.holdMenuReads()
+        let coordinator = menuCoordinator(client)
+        let reading = Task { await coordinator.windowMenu(for: "1", maxTitleLength: 60) }
+        await eventually { client.titledReads.count == 1 && client.focusReads == 1 }
+        client.releaseMenuReads()
+        _ = await reading.value
+    }
+
+    @Test func slowWindowReadTimesOutAsUnreadable() async {
+        let client = clientWithWindows()
+        client.titled = ["1": titledOne]
+        client.holdMenuReads()
+        let clock = ManualClock()
+        let coordinator = menuCoordinator(client, clock: clock)
+        let reading = Task { await coordinator.windowMenu(for: "1", maxTitleLength: 60) }
+        await eventually { clock.pendingDeadlines.contains(Config.standard.timing.windowMenuTimeout) }
+        clock.advance(by: Config.standard.timing.windowMenuTimeout)
+        #expect(await reading.value == .unreadable("1"))
+        client.releaseMenuReads()
+    }
+
+    @Test func secondMenuRequestWhileReadingIsIgnored() async {
+        let client = clientWithWindows()
+        client.titled = ["1": titledOne]
+        client.holdMenuReads()
+        let coordinator = menuCoordinator(client)
+        let first = Task { await coordinator.windowMenu(for: "1", maxTitleLength: 60) }
+        await eventually { client.titledReads.count == 1 }
+        #expect(await coordinator.windowMenu(for: "2", maxTitleLength: 60) == nil)
+        client.releaseMenuReads()
+        #expect(await first.value?.rows?.count == 3)
+        // Once it's done, the next request reads again.
+        #expect(await coordinator.windowMenu(for: "1", maxTitleLength: 60) != nil)
+        #expect(client.titledReads == ["1", "1"])
+    }
+
+    @Test func choosingAWindowFocusesItThenRunsOneBurst() async {
+        let client = clientWithWindows()
+        let (coordinator, _) = makeCoordinator(client)
+        await coordinator.focus(windowId: 30, on: "1")
+        await coordinator.burstTask?.value
+        #expect(client.focusedWindows == [30])
+        #expect(client.focused.isEmpty)
+        #expect(client.snapshotCalls == 3)
+    }
+
+    @Test func choosingAWindowThatCantBeFocusedSwitchesWorkspace() async {
+        let client = clientWithWindows()
+        client.windowFocusFailure = Unreachable()
+        let (coordinator, _) = makeCoordinator(client)
+        await coordinator.focus(windowId: 30, on: "1")
+        #expect(client.focusedWindows == [30])
+        #expect(client.focused == ["1"])
+    }
+
     @Test func reconnectBackoffGrowsAndCaps() {
         let timing = Config.standard.timing
         #expect(timing.reconnectDelay(attempt: 0) == .seconds(1))
@@ -478,7 +640,8 @@ private func eventually(
     let timing = Timing(
         burstDelays: [.milliseconds(100), .milliseconds(500)],
         pollInterval: .seconds(60),
-        reconnectBackoff: [.seconds(1), .seconds(2), .seconds(5)]
+        reconnectBackoff: [.seconds(1), .seconds(2), .seconds(5)],
+        windowMenuTimeout: .milliseconds(500)
     )
 
     private func pollIsPending(_ clock: ManualClock) -> Bool {

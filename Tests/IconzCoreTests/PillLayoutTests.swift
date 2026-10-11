@@ -129,13 +129,42 @@ private func visibleGroup(_ name: String) -> WorkspaceGroup {
         // Half the icon gap on each side belongs to the icon.
         #expect(layout.target(atX: 44.5) == first)
         #expect(layout.target(atX: 79.5) == second)
-        // Label, the label–icon gap, `+N` and padding switch workspace.
+        // Label, the label–icon gap and padding switch workspace.
         #expect(layout.target(atX: 28) == .workspace("2"))
         #expect(layout.target(atX: 33) == .workspace("2"))
         #expect(layout.target(atX: 43) == .workspace("2"))
-        #expect(layout.target(atX: 85) == .workspace("2"))
+        #expect(layout.target(atX: 104) == .workspace("2"))
         // Between pills, as before.
         #expect(layout.target(atX: 22) == .workspace("1"))
+    }
+
+    @Test func clickOnOverflowOpensTheWindowMenu() {
+        // Pill "2" at 26: last icon ends at 79, "+1" spans 81–101, padding to 106.
+        let layout = PillLayout(groups: [group("1", apps: 0), group("2", apps: 3)], config: config(maxIcons: 2), measure: measure)
+        #expect(layout.target(atX: 85) == .windowMenu("2"))
+        // Half the icon gap on each side belongs to `+N`, as for icons.
+        #expect(layout.target(atX: 80.5) == .windowMenu("2"))
+        #expect(layout.target(atX: 101.5) == .windowMenu("2"))
+        #expect(layout.target(atX: 102.5) == .workspace("2"))
+    }
+
+    @Test func overflowInTheButtonAllowsForTheCenteredImage() {
+        // One pill: label 5–15, icons at 19 and 37, "+1" 55–75, width 80; centered in 100: +10.
+        let layout = PillLayout(groups: [group("1", apps: 3)], config: config(maxIcons: 2), measure: measure)
+        #expect(layout.target(atButtonX: 70, buttonWidth: 100) == .windowMenu("1"))
+    }
+
+    @Test func rightClickFindsThePillsWorkspaceLikeALeftClick() {
+        // Badge 0–80, pill "1" 86–106 (no icons), pill "2" 112–132.
+        let layout = PillLayout(state: .workspaces([group("1", apps: 0, focused: true), group("2", apps: 0)], mode: "service"),
+                                config: config(), measure: measure)
+        #expect(layout.workspace(atX: 40) == nil)
+        #expect(layout.workspace(atX: 90) == "1")
+        #expect(layout.workspace(atX: 108) == "1")
+        #expect(layout.workspace(atX: 110) == "2")
+        #expect(layout.workspace(atX: 500) == "2")
+        #expect(layout.workspace(atButtonX: 100, buttonWidth: 152) == "1")
+        #expect(PillLayout(state: .unavailable, config: config(), measure: measure).workspace(atX: 5) == nil)
     }
 
     @Test func clickOnTheBadgeOrPlaceholderHasNoTarget() {

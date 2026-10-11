@@ -36,6 +36,26 @@ public struct WindowInfo: Equatable, Sendable {
     public var appKey: AppKey { AppKey(bundleId: appBundleId, appName: appName) }
 }
 
+/// One window with its title, as `aerospace list-windows --workspace` reports it for the
+/// window menu. Titles are read only when the menu opens, never kept.
+public struct TitledWindow: Equatable, Sendable {
+    public var id: Int
+    public var appBundleId: String?
+    public var appName: String
+    public var appPid: Int32
+    public var title: String
+
+    public init(id: Int, appBundleId: String?, appName: String, appPid: Int32, title: String) {
+        self.id = id
+        self.appBundleId = appBundleId
+        self.appName = appName
+        self.appPid = appPid
+        self.title = title
+    }
+
+    public var appKey: AppKey { AppKey(bundleId: appBundleId, appName: appName) }
+}
+
 /// One workspace as reported by `aerospace list-workspaces`.
 public struct WorkspaceInfo: Equatable, Sendable {
     public var name: WorkspaceName

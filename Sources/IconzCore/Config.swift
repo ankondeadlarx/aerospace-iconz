@@ -23,6 +23,9 @@ public struct Config: Sendable {
 
     /// Gap between the status item and the top of its right-click menu.
     public var menuVerticalOffset: Double
+    /// Window titles longer than this many characters are cut in the middle.
+    public var windowMenuTitleLength: Int
+    public var windowMenuIconSize: Double
 
     public var statusItemAutosaveName: String
     /// GUI apps don't inherit the shell PATH, so look in the usual Homebrew locations.
@@ -45,7 +48,8 @@ public struct Config: Sendable {
         timing: Timing(
             burstDelays: [.milliseconds(100), .milliseconds(500)],
             pollInterval: .seconds(3),
-            reconnectBackoff: [.seconds(1), .seconds(2), .seconds(5), .seconds(10)]
+            reconnectBackoff: [.seconds(1), .seconds(2), .seconds(5), .seconds(10)],
+            windowMenuTimeout: .milliseconds(500)
         ),
         labelFontSize: 12,
         labelFontWeight: 0.23,
@@ -57,6 +61,8 @@ public struct Config: Sendable {
         iconRetryDelay: .seconds(1),
         iconRetryLimit: 5,
         menuVerticalOffset: 4,
+        windowMenuTitleLength: 60,
+        windowMenuIconSize: 16,
         statusItemAutosaveName: "AeroSpaceIconz",
         aerospaceExecutableCandidates: ["/opt/homebrew/bin/aerospace", "/usr/local/bin/aerospace"],
         cliTimeout: .seconds(2)
@@ -71,6 +77,9 @@ public struct Timing: Sendable {
     public var pollInterval: Duration
     /// Wait before restarting `aerospace subscribe`, by consecutive failed attempt.
     public var reconnectBackoff: [Duration]
+    /// The window menu opens once its windows are read, or as unreadable after this long.
+    /// Shorter than `cliTimeout`, so a stuck `aerospace` can't hold the menu back for long.
+    public var windowMenuTimeout: Duration
 
     public func reconnectDelay(attempt: Int) -> Duration {
         reconnectBackoff[min(attempt, reconnectBackoff.count - 1)]

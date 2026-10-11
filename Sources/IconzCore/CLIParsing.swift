@@ -14,6 +14,12 @@ public enum CLIParsing {
     public static let listFocusedWindowArguments = [
         "list-windows", "--focused", "--json", "--format", "%{window-id}",
     ]
+    public static func listTitledWindowsArguments(on workspace: WorkspaceName) -> [String] {
+        [
+            "list-windows", "--workspace", workspace.rawValue, "--json",
+            "--format", "%{window-id} %{app-bundle-id} %{app-name} %{app-pid} %{window-title}",
+        ]
+    }
     public static let listModesArguments = ["list-modes", "--current", "--json"]
     public static let subscribeArguments = ["subscribe", "--all"]
 
@@ -25,6 +31,18 @@ public enum CLIParsing {
                 appName: $0.appName,
                 appPid: $0.appPid,
                 workspace: WorkspaceName($0.workspace)
+            )
+        }
+    }
+
+    public static func titledWindows(from data: Data) throws -> [TitledWindow] {
+        try JSONDecoder().decode([RawTitledWindow].self, from: data).map {
+            TitledWindow(
+                id: $0.windowId,
+                appBundleId: ($0.appBundleId?.isEmpty ?? true) ? nil : $0.appBundleId,
+                appName: $0.appName,
+                appPid: $0.appPid,
+                title: $0.windowTitle
             )
         }
     }
@@ -60,6 +78,19 @@ public enum CLIParsing {
         enum CodingKeys: String, CodingKey {
             case windowId = "window-id", appBundleId = "app-bundle-id", appName = "app-name"
             case appPid = "app-pid", workspace
+        }
+    }
+
+    private struct RawTitledWindow: Decodable {
+        var windowId: Int
+        var appBundleId: String?
+        var appName: String
+        var appPid: Int32
+        var windowTitle: String
+
+        enum CodingKeys: String, CodingKey {
+            case windowId = "window-id", appBundleId = "app-bundle-id", appName = "app-name"
+            case appPid = "app-pid", windowTitle = "window-title"
         }
     }
 

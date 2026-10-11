@@ -76,6 +76,14 @@ Everything goes through the public `aerospace` CLI.
   workspace comes from the last good re-read, kept by the coordinator but not part of the
   drawn model (so windows coming and going don't redraw). The focused window is read only at
   click time: `aerospace list-windows --focused --json --format '%{window-id}'`.
+- **Window menu:** read when it's asked for, never stored, two calls in parallel:
+  `aerospace list-windows --workspace <name> --json --format '%{window-id} %{app-bundle-id} %{app-name} %{app-pid} %{window-title}'`
+  (~25 ms; there is no `%{window-is-focused}`) and the focused-window read above. The menu
+  opens once both are in, or after `windowMenuTimeout` (0.5 s, shorter than `cliTimeout` so
+  a stuck `aerospace` can't hold it back long): windows not read by then make it unreadable;
+  a focus not read by then, or failed, only leaves nothing checked. A late call keeps running
+  until `cliTimeout` kills it, and its answer is dropped. A menu request while one is being
+  read is ignored, so repeated clicks open one menu. Costs nothing while idle.
 
 ## What's shown
 
@@ -127,9 +135,23 @@ Exact values live in `Config.swift`.
   oldest window (lowest id) on that workspace. If one of that app's windows there is
   already focused, focus its next one instead, wrapping around. If the focused window can't
   be read, it counts as not focused. If the app has no window there any more, or the focus
-  fails, switch to the workspace instead. Label, padding, `+N` and gaps still switch.
+  fails, switch to the workspace instead. Label, padding and gaps still switch.
   Each click reads focus on its own, so a fast double-click advances one window, not two.
-- Right-click or Ctrl-click → menu: Refresh, Launch at Login (`SMAppService.mainApp`), Quit.
+- Left-click `+N` (with half the icon gap on each side, like an icon) → that pill's window menu.
+- Right-click or Ctrl-click → menu. On a pill (found the way a left-click finds it: gaps to
+  the nearer pill, past either end to the end pill) the menu starts with that workspace's
+  windows; on the mode badge or the placeholder it has only the global items:
+  - A "Workspace <name>" section header, then one row per window on that workspace: the app
+    icon (16 pt) and the window title, or the app name when the title is empty. Titles over
+    60 characters are cut in the middle with "…"; duplicate titles stay as they are. Rows go
+    in the pill's icon order, then window id; apps not on the pill yet (new since its last
+    read) come after, by oldest window, where the pill would add them. The focused window is
+    checked. Choosing a row focuses that window (`focus --window-id`); if it's gone or the
+    focus fails, it switches to the workspace instead, as an icon click does.
+  - No windows (only the focused workspace can be empty): a disabled "No windows" row.
+    Windows not read: a disabled "Couldn't read windows" row.
+  - Then a separator and the global items: Refresh, Launch at Login (`SMAppService.mainApp`),
+    a separator, Quit.
   - Launch at Login is checked when enabled. When macOS needs the user to allow it, it shows
     mixed with "(Allow in System Settings…)" and opens Login Items. A failed toggle shows an alert.
 
@@ -150,11 +172,12 @@ Exact values live in `Config.swift`.
     - `CLIParsing`: CLI arguments and JSON decoding; `LineSplitter` for the `subscribe` stream.
     - `WorkspaceReducer`: snapshot → workspace groups (filtering, dedupe, stable icon order).
     - `PillLayout`: groups or unavailable state → pills with every position (mode badge, `+N`,
-      width-fit, hit-testing: workspace or app icon). The placeholder and the badge have
-      no workspace, so clicks on them do nothing.
+      width-fit, hit-testing: workspace, app icon or `+N`; and the workspace a right-click
+      lands on). The placeholder and the badge have no workspace, so clicks on them do nothing.
+    - `WindowMenu`: a workspace's titled windows → menu rows (order, label, truncation, focus).
     - `RefreshCoordinator`: when to re-read (events, bursts, poll, pause reasons, reconnect
       backoff); publishes `BarState` on change; carries out clicks (`select`: which window
-      to focus, or which workspace).
+      to focus, or which workspace); reads window menus (`windowMenu(for:)`) with their timeout.
     - `AeroSpaceClient` and `MonotonicClock` seams, `Config`.
   - `AeroSpaceIconz` (executable, AppKit, thin glue): `CLIClient` (runs the CLI with a
     timeout), `Subscriptions` (live `subscribe` children), `IconCache`, `PillRenderer`,
@@ -162,14 +185,16 @@ Exact values live in `Config.swift`.
     `SMAppService` status), `AppDelegate` (wiring, sleep/lock/app-quit notifications,
     SIGTERM), `DebugRender`.
 - Seam: `AeroSpaceClient` (`snapshot()`, `mode()`, `events()`, `focus(workspace:)`,
-  `focusedWindowId()`, `focus(windowId:)`). The real implementation runs the CLI; tests
+  `focusedWindowId()`, `focus(windowId:)`, `windows(on:)`). The real implementation runs the CLI; tests
   use a fake. Time goes through `MonotonicClock` (`SystemClock` in the app, a manually
   advanced fake in tests).
 - Debug: `AeroSpaceIconz --render-png <dir> [--mode <name>]` reads the live AeroSpace, renders
   the current state in light and dark appearance to PNGs in `<dir>` (created if needed),
   prints their paths and exits; it says so when AeroSpace wasn't reachable. `--mode`
   overrides the binding mode, to see the badge without entering that mode. For checking
-  the drawing without the menu bar.
+  the drawing without the menu bar. `AeroSpaceIconz --print-window-menu <workspace>` prints
+  that workspace's window menu rows (checkmark, window id, label as shown) from the live
+  AeroSpace and exits.
 - All tunables live in one `Config` struct (no TOML in v1).
 
 ## aerospace.toml
@@ -230,10 +255,8 @@ merged locally, then tagged.
    focused window is read at click time (`list-windows --focused`), not kept in the model.
    Label, padding and gaps still switch workspace. `+N` switches too until v1.3, where it
    opens the window menu.
-3. **v1.3 Per-pill window menu.** Right-click a pill → that workspace's windows (icon +
-   title, an empty title shows the app name, middle-truncated at ~60 chars, in icon order
-   then window id, focused one checked), separator, then Refresh / Launch at Login / Quit.
-   Titles and focus are read when the menu opens, never stored in the model. A failed read
-   shows a disabled "Couldn't read windows" row; the placeholder shows only the global items.
+3. **v1.3 Per-pill window menu** (above). Right-click a pill, or click its `+N`, for that
+   workspace's windows; choose one to focus it. Titles and focus are read when the menu
+   opens, never stored in the model, so idle CPU is unchanged.
 4. **Deferred:** pinned/always-shown workspaces (if wanted); per-monitor grouping (when
    docking makes it hurt); hover tooltips; TOML config. Drag an icon onto a pill: probably never.

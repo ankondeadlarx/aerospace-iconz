@@ -11,6 +11,8 @@ public protocol AeroSpaceClient: Sendable {
     func focusedWindowId() async throws -> Int?
     /// Focuses a window, switching to its workspace.
     func focus(windowId: Int) async throws
+    /// The windows on `workspace`, with titles. Read only when its window menu opens.
+    func windows(on workspace: WorkspaceName) async throws -> [TitledWindow]
 }
 
 /// Monotonic time as a `Duration` since an arbitrary origin, so tests can drive it.

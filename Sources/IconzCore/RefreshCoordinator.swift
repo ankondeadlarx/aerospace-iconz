@@ -1,3 +1,5 @@
+import Synchronization
+
 public enum PauseReason: Hashable, Sendable {
     case displaysAsleep, screenLocked
 }
@@ -37,6 +39,8 @@ public final class RefreshCoordinator {
     private var isRefreshing = false
     private var refreshPending = false
     private var pauseReasons: Set<PauseReason> = []
+    /// A window menu is being read; further menu requests are ignored until it's done.
+    private var isReadingWindowMenu = false
     private(set) var burstTask: Task<Void, Never>?
     // These hold the coordinator until `stop()` cancels them.
     private var subscriptionTask: Task<Void, Never>?
@@ -92,6 +96,7 @@ public final class RefreshCoordinator {
         switch target {
         case .workspace(let name): await focus(workspace: name)
         case .app(let app, let workspace): await focus(app: app, on: workspace)
+        case .windowMenu: break  // The status item opens the menu itself.
         }
     }
 
@@ -104,16 +109,71 @@ public final class RefreshCoordinator {
     /// one of them already has focus. Switches to the workspace if that can't be done.
     public func focus(app: AppKey, on workspace: WorkspaceName) async {
         let ids = windows.filter { $0.workspace == workspace && $0.appKey == app }.map(\.id).sorted()
+        guard let target = await nextWindow(among: ids) else {
+            await focus(workspace: workspace)
+            return
+        }
+        await focus(windowId: target, on: workspace)
+    }
+
+    /// Focuses a window (a window menu row, or an icon's pick). Switches to `workspace` if
+    /// that fails, e.g. because the window has closed since.
+    public func focus(windowId: Int, on workspace: WorkspaceName) async {
         do {
-            guard let target = await nextWindow(among: ids) else { throw NoWindow() }
-            try await client.focus(windowId: target)
+            try await client.focus(windowId: windowId)
             nudge()
         } catch {
             await focus(workspace: workspace)
         }
     }
 
-    private struct NoWindow: Error {}
+    /// The window menu for `workspace`, read now and never kept: its windows with titles in the
+    /// pill's icon order, the focused one marked. Unreadable if the windows can't be read within
+    /// `windowMenuTimeout`; an unreadable focus only loses the mark. `nil` while another menu
+    /// is still being read, so repeated clicks open one menu.
+    public func windowMenu(for workspace: WorkspaceName, maxTitleLength: Int) async -> WindowMenu? {
+        guard !isReadingWindowMenu else { return nil }
+        isReadingWindowMenu = true
+        defer { isReadingWindowMenu = false }
+
+        let deadline = clock.now() + timing.windowMenuTimeout
+        let client = client
+        async let focused = result(by: deadline) { try await client.focusedWindowId() }
+        guard case .success(let windows) = await result(by: deadline, { try await client.windows(on: workspace) }) else {
+            _ = await focused
+            return .unreadable(workspace)
+        }
+        var iconOrder: [AppKey] = []
+        if case .workspaces(let groups, _) = lastState {
+            iconOrder = groups.first { $0.workspace.name == workspace }?.apps.map(\.key) ?? []
+        }
+        let focusedId = try? await focused.get()
+        return WindowMenu(workspace: workspace, windows: windows, iconOrder: iconOrder,
+                          focusedWindowId: focusedId ?? nil, maxTitleLength: maxTitleLength)
+    }
+
+    private struct TimedOut: Error {}
+
+    /// `work`'s result, or `TimedOut` if it hasn't finished by `deadline`. A late `work` keeps
+    /// running (the CLI kills it at `cliTimeout`); its answer is dropped.
+    private func result<T: Sendable>(
+        by deadline: Duration, _ work: @escaping @Sendable () async throws -> T
+    ) async -> Result<T, any Error> {
+        let first = FirstResult<T>()
+        var timer: Task<Void, Never>?
+        let result = await withCheckedContinuation { continuation in
+            first.wait(continuation)
+            Task {
+                do { first.resume(.success(try await work())) } catch { first.resume(.failure(error)) }
+            }
+            timer = Task { [clock] in
+                guard (try? await clock.sleep(until: deadline)) != nil else { return }
+                first.resume(.failure(TimedOut()))
+            }
+        }
+        timer?.cancel()
+        return result
+    }
 
     /// The window after the focused one in `ids` (wrapping), else the first.
     private func nextWindow(among ids: [Int]) async -> Int? {
@@ -206,5 +266,18 @@ public final class RefreshCoordinator {
             do { try await clock.sleep(for: timing.pollInterval) } catch { return }
             await refresh(readingMode: false)
         }
+    }
+}
+
+/// Resumes one continuation with whichever result arrives first; later ones are dropped.
+private final class FirstResult<T: Sendable>: Sendable {
+    private let continuation = Mutex<CheckedContinuation<Result<T, any Error>, Never>?>(nil)
+
+    func wait(_ continuation: CheckedContinuation<Result<T, any Error>, Never>) {
+        self.continuation.withLock { $0 = continuation }
+    }
+
+    func resume(_ result: Result<T, any Error>) {
+        continuation.withLock { $0.take() }?.resume(returning: result)
     }
 }
