@@ -15,12 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.status.render(state)
         }
         status.onClick = { [weak self] target in
-            Task {
-                switch target {
-                case .workspace(let name): await self?.coordinator.focus(workspace: name)
-                case .app(let app, let workspace): await self?.coordinator.focus(app: app, on: workspace)
-                }
-            }
+            Task { await self?.coordinator.select(target) }
         }
         status.onRefresh = { [weak self] in self?.coordinator.nudge() }
 

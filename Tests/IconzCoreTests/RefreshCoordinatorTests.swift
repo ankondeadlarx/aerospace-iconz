@@ -408,6 +408,25 @@ private func eventually(
         #expect(client.focusedWindows == [30, 10])
     }
 
+    @Test func appFocusedOnAnotherWorkspaceDoesNotCount() async {
+        let client = clientWithWindows()
+        client.focusedWindow = 5  // A's window on "2"
+        let (coordinator, _) = makeCoordinator(client)
+        await coordinator.refresh()
+        await coordinator.focus(app: appA, on: "1")
+        #expect(client.focusedWindows == [10])
+    }
+
+    @Test func selectRoutesEachClickTarget() async {
+        let client = clientWithWindows()
+        let (coordinator, _) = makeCoordinator(client)
+        await coordinator.refresh()
+        await coordinator.select(.app(appA, on: "1"))
+        await coordinator.select(.workspace("2"))
+        #expect(client.focusedWindows == [10])
+        #expect(client.focused == ["2"])
+    }
+
     @Test func unreadableFocusCountsAsNotFocused() async {
         let client = clientWithWindows()
         client.focusedWindowFailure = Unreachable()

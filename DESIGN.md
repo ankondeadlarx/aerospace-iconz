@@ -73,8 +73,8 @@ Everything goes through the public `aerospace` CLI.
   placeholder; the next good read clears it. A read cancelled mid-burst changes nothing.
 - **Switching:** `aerospace workspace <name>`.
 - **Focusing a window:** `aerospace focus --window-id <id>`. Which windows an app has on a
-  workspace comes from the last re-read, kept by the coordinator but not part of the drawn
-  model (so windows coming and going don't redraw). The focused window is read only at
+  workspace comes from the last good re-read, kept by the coordinator but not part of the
+  drawn model (so windows coming and going don't redraw). The focused window is read only at
   click time: `aerospace list-windows --focused --json --format '%{window-id}'`.
 
 ## What's shown
@@ -125,6 +125,7 @@ Exact values live in `Config.swift`.
   already focused, focus its next one instead, wrapping around. If the focused window can't
   be read, it counts as not focused. If the app has no window there any more, or the focus
   fails, switch to the workspace instead. Label, padding, `+N` and gaps still switch.
+  Each click reads focus on its own, so a fast double-click advances one window, not two.
 - Right-click or Ctrl-click → menu: Refresh, Launch at Login (`SMAppService.mainApp`), Quit.
   - Launch at Login is checked when enabled. When macOS needs the user to allow it, it shows
     mixed with "(Allow in System Settings…)" and opens Login Items. A failed toggle shows an alert.
@@ -146,10 +147,11 @@ Exact values live in `Config.swift`.
     - `CLIParsing`: CLI arguments and JSON decoding; `LineSplitter` for the `subscribe` stream.
     - `WorkspaceReducer`: snapshot → workspace groups (filtering, dedupe, stable icon order).
     - `PillLayout`: groups or unavailable state → pills with every position (mode badge, `+N`,
-      width-fit, hit-testing: workspace or app icon). The placeholder and the badge have no workspace, so clicks on
-      them do nothing.
+      width-fit, hit-testing: workspace or app icon). The placeholder and the badge have
+      no workspace, so clicks on them do nothing.
     - `RefreshCoordinator`: when to re-read (events, bursts, poll, pause reasons, reconnect
-      backoff); publishes `BarState` on change; carries out clicks (which window to focus).
+      backoff); publishes `BarState` on change; carries out clicks (`select`: which window
+      to focus, or which workspace).
     - `AeroSpaceClient` and `MonotonicClock` seams, `Config`.
   - `AeroSpaceIconz` (executable, AppKit, thin glue): `CLIClient` (runs the CLI with a
     timeout), `Subscriptions` (live `subscribe` children), `IconCache`, `PillRenderer`,
@@ -157,9 +159,9 @@ Exact values live in `Config.swift`.
     `SMAppService` status), `AppDelegate` (wiring, sleep/lock/app-quit notifications,
     SIGTERM), `DebugRender`.
 - Seam: `AeroSpaceClient` (`snapshot()`, `mode()`, `events()`, `focus(workspace:)`,
-  `focusedWindowId()`, `focus(windowId:)`). The real
-  implementation runs the CLI; tests use a fake. Time goes through `MonotonicClock`
-  (`SystemClock` in the app, a manually advanced fake in tests).
+  `focusedWindowId()`, `focus(windowId:)`). The real implementation runs the CLI; tests
+  use a fake. Time goes through `MonotonicClock` (`SystemClock` in the app, a manually
+  advanced fake in tests).
 - Debug: `AeroSpaceIconz --render-png <dir> [--mode <name>]` reads the live AeroSpace, renders
   the current state in light and dark appearance to PNGs in `<dir>` (created if needed),
   prints their paths and exits; it says so when AeroSpace wasn't reachable. `--mode`

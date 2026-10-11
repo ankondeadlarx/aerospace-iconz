@@ -130,6 +130,7 @@ private func visibleGroup(_ name: String) -> WorkspaceGroup {
         #expect(layout.target(atX: 44.5) == first)
         #expect(layout.target(atX: 79.5) == second)
         // Label, the label–icon gap, `+N` and padding switch workspace.
+        #expect(layout.target(atX: 28) == .workspace("2"))
         #expect(layout.target(atX: 33) == .workspace("2"))
         #expect(layout.target(atX: 43) == .workspace("2"))
         #expect(layout.target(atX: 85) == .workspace("2"))

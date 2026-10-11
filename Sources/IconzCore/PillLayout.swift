@@ -126,14 +126,12 @@ public struct PillLayout: Equatable, Sendable {
 
     private init(sources: [PillSource], config: LayoutConfig, measure: (String) -> Double) {
         // Lower the icon cap on unfocused pills one step at a time until everything fits.
-        var cap = config.maxIconsPerPill
-        self = PillLayout(sources: sources, focusedCap: config.maxIconsPerPill, cap: cap,
-                          metrics: config.metrics, measure: measure)
-        while totalWidth > config.maxTotalWidth, cap > 1 {
+        var cap = config.maxIconsPerPill + 1
+        repeat {
             cap -= 1
             self = PillLayout(sources: sources, focusedCap: config.maxIconsPerPill, cap: cap,
                               metrics: config.metrics, measure: measure)
-        }
+        } while totalWidth > config.maxTotalWidth && cap > 1
     }
 
     private init(sources: [PillSource], focusedCap: Int, cap: Int, metrics: PillMetrics, measure: (String) -> Double) {

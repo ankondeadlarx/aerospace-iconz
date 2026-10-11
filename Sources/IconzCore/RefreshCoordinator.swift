@@ -87,6 +87,14 @@ public final class RefreshCoordinator {
         }
     }
 
+    /// A left-click on the bar.
+    public func select(_ target: ClickTarget) async {
+        switch target {
+        case .workspace(let name): await focus(workspace: name)
+        case .app(let app, let workspace): await focus(app: app, on: workspace)
+        }
+    }
+
     public func focus(workspace: WorkspaceName) async {
         try? await client.focus(workspace: workspace)
         nudge()
@@ -96,12 +104,16 @@ public final class RefreshCoordinator {
     /// one of them already has focus. Switches to the workspace if that can't be done.
     public func focus(app: AppKey, on workspace: WorkspaceName) async {
         let ids = windows.filter { $0.workspace == workspace && $0.appKey == app }.map(\.id).sorted()
-        if let target = await nextWindow(among: ids), (try? await client.focus(windowId: target)) != nil {
+        do {
+            guard let target = await nextWindow(among: ids) else { throw NoWindow() }
+            try await client.focus(windowId: target)
             nudge()
-        } else {
+        } catch {
             await focus(workspace: workspace)
         }
     }
+
+    private struct NoWindow: Error {}
 
     /// The window after the focused one in `ids` (wrapping), else the first.
     private func nextWindow(among ids: [Int]) async -> Int? {
