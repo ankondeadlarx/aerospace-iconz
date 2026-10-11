@@ -48,7 +48,7 @@ struct PillRenderer {
                     break
                 }
 
-                drawText(pill.name, at: frame.labelX, height: m.pillHeight, font: font, color: label)
+                drawText(pill.label, at: frame.labelX, height: m.pillHeight, font: font, color: label)
                 for (icon, x) in zip(images[index], frame.iconXs) {
                     let y = (m.pillHeight - m.iconSize) / 2
                     icon.draw(in: NSRect(x: x, y: y, width: m.iconSize, height: m.iconSize))

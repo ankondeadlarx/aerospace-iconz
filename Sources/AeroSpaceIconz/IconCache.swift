@@ -5,7 +5,7 @@ import IconzCore
 /// available yet (still launching) gets another try on the next draw.
 @MainActor
 final class IconCache {
-    private var icons: [String: NSImage] = [:]
+    private var icons: [AppKey: NSImage] = [:]
     private lazy var fallback = NSWorkspace.shared.icon(for: .applicationBundle)
 
     func icon(for app: AppRef) -> NSImage {

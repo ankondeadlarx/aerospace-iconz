@@ -46,9 +46,11 @@ public enum PillEmphasis: Equatable, Sendable {
     case none
 }
 
-/// A workspace ready to draw: the icons that fit and how many were cut.
+/// A pill ready to draw: the icons that fit and how many were cut.
 public struct Pill: Equatable, Sendable {
-    public var name: String
+    public var label: String
+    /// The workspace a click switches to; `nil` for the placeholder.
+    public var workspace: WorkspaceName?
     public var emphasis: PillEmphasis
     public var icons: [AppRef]
     public var overflow: Int
@@ -80,32 +82,45 @@ public struct PillLayout: Equatable, Sendable {
         case .workspaces(let groups):
             self.init(groups: groups, config: config, measure: measure)
         case .unavailable:
-            let placeholder = WorkspaceGroup(name: config.placeholderLabel, isFocused: false, isVisible: true, apps: [])
-            self.init(groups: [placeholder], config: config, measure: measure)
+            let placeholder = PillSource(label: config.placeholderLabel, workspace: nil, emphasis: .outline, apps: [])
+            self.init(sources: [placeholder], config: config, measure: measure)
             isDimmed = true
         }
     }
 
     public init(groups: [WorkspaceGroup], config: LayoutConfig, measure: (String) -> Double) {
+        let sources = groups.map { group in
+            let workspace = group.workspace
+            return PillSource(
+                label: workspace.name.rawValue,
+                workspace: workspace.name,
+                emphasis: workspace.isFocused ? .fill : workspace.isVisible ? .outline : .none,
+                apps: group.apps
+            )
+        }
+        self.init(sources: sources, config: config, measure: measure)
+    }
+
+    private init(sources: [PillSource], config: LayoutConfig, measure: (String) -> Double) {
         // Lower the icon cap on unfocused pills one step at a time until everything fits.
         for cap in stride(from: config.maxIconsPerPill, through: 1, by: -1) {
-            self = PillLayout(groups: groups, focusedCap: config.maxIconsPerPill, cap: cap,
+            self = PillLayout(sources: sources, focusedCap: config.maxIconsPerPill, cap: cap,
                               metrics: config.metrics, measure: measure)
             if totalWidth <= config.maxTotalWidth { return }
         }
     }
 
-    private init(groups: [WorkspaceGroup], focusedCap: Int, cap: Int, metrics m: PillMetrics, measure: (String) -> Double) {
+    private init(sources: [PillSource], focusedCap: Int, cap: Int, metrics m: PillMetrics, measure: (String) -> Double) {
         var x = 0.0
-        for group in groups {
-            let limit = group.isFocused ? focusedCap : cap
-            let icons = Array(group.apps.prefix(limit))
-            let emphasis: PillEmphasis = group.isFocused ? .fill : group.isVisible ? .outline : .none
-            let pill = Pill(name: group.name, emphasis: emphasis, icons: icons, overflow: group.apps.count - icons.count)
+        for source in sources {
+            let limit = source.emphasis == .fill ? focusedCap : cap
+            let icons = Array(source.apps.prefix(limit))
+            let pill = Pill(label: source.label, workspace: source.workspace, emphasis: source.emphasis,
+                            icons: icons, overflow: source.apps.count - icons.count)
 
             if !pills.isEmpty { x += m.pillSpacing }
             let labelX = x + m.horizontalPadding
-            var cursor = labelX + measure(pill.name)
+            var cursor = labelX + measure(pill.label)
             var iconXs: [Double] = []
             for index in icons.indices {
                 cursor += index == 0 ? m.labelIconGap : m.iconGap
@@ -129,12 +144,20 @@ public struct PillLayout: Equatable, Sendable {
 
     /// The workspace a click at `x` targets. Gaps are split down the middle; clicks past
     /// either end go to the edge pill.
-    public func workspace(atX x: Double) -> String? {
+    public func workspace(atX x: Double) -> WorkspaceName? {
         for (index, frame) in frames.enumerated() {
             let next = index + 1 < frames.count ? frames[index + 1].x : .infinity
             let boundary = (frame.x + frame.width + next) / 2
-            if x < boundary { return pills[index].name }
+            if x < boundary { return pills[index].workspace }
         }
-        return pills.last?.name
+        return pills.last?.workspace
     }
+}
+
+/// What a pill is built from: a workspace group, or the placeholder.
+private struct PillSource {
+    var label: String
+    var workspace: WorkspaceName?
+    var emphasis: PillEmphasis
+    var apps: [AppRef]
 }

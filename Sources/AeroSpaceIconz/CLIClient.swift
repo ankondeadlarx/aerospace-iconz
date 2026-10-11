@@ -1,5 +1,6 @@
 import Foundation
 import IconzCore
+import Synchronization
 
 enum CLIError: Error {
     case exitStatus(Int32)
@@ -23,25 +24,23 @@ struct CLIClient: AeroSpaceClient {
         )
     }
 
-    func focus(workspace: String) async throws {
-        _ = try await run(["workspace", workspace])
+    func focus(workspace: WorkspaceName) async throws {
+        _ = try await run(["workspace", workspace.rawValue])
     }
 
     func events() -> AsyncStream<AeroSpaceEvent> {
         AsyncStream { continuation in
-            let process = Process()
-            process.executableURL = executable
-            process.arguments = CLIParsing.subscribeArguments
-            let output = Pipe()
-            process.standardOutput = output
-            process.standardError = FileHandle.nullDevice
+            let (process, output) = makeProcess(CLIParsing.subscribeArguments)
 
+            // Finish only once every line has been delivered (pipe EOF) and the process is
+            // gone and untracked (termination). Either can happen first.
+            let finished = Countdown(2) { continuation.finish() }
             let lines = LineSplitter()
             output.fileHandleForReading.readabilityHandler = { handle in
                 let data = handle.availableData
                 guard !data.isEmpty else {
                     handle.readabilityHandler = nil
-                    continuation.finish()
+                    finished.tick()
                     return
                 }
                 for line in lines.append(data) {
@@ -51,7 +50,7 @@ struct CLIClient: AeroSpaceClient {
             let box = ProcessBox(process)
             process.terminationHandler = { _ in
                 Subscriptions.remove(box)
-                continuation.finish()
+                finished.tick()
             }
             continuation.onTermination = { _ in
                 if box.process.isRunning { box.process.terminate() }
@@ -69,16 +68,23 @@ struct CLIClient: AeroSpaceClient {
         }
     }
 
+    /// An unlaunched `aerospace` process with stdout piped back and stderr discarded.
+    private func makeProcess(_ arguments: [String]) -> (Process, Pipe) {
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = arguments
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        return (process, output)
+    }
+
     private func run(_ arguments: [String]) async throws -> Data {
-        let executable = executable
+        let (process, output) = makeProcess(arguments)
+        let box = ProcessBox(process)
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
-                let process = Process()
-                process.executableURL = executable
-                process.arguments = arguments
-                let output = Pipe()
-                process.standardOutput = output
-                process.standardError = FileHandle.nullDevice
+                let process = box.process
                 // Not waitUntilExit(): it polls the run loop and adds ~60 ms per call.
                 let exited = DispatchSemaphore(value: 0)
                 process.terminationHandler = { _ in exited.signal() }
@@ -117,6 +123,25 @@ private final class LineSplitter: @unchecked Sendable {
     }
 }
 
+/// Runs `action` once `tick()` has been called `count` times, from any threads.
+private final class Countdown: Sendable {
+    private let remaining: Mutex<Int>
+    private let action: @Sendable () -> Void
+
+    init(_ count: Int, action: @escaping @Sendable () -> Void) {
+        remaining = Mutex(count)
+        self.action = action
+    }
+
+    func tick() {
+        let isLast = remaining.withLock { value in
+            value -= 1
+            return value == 0
+        }
+        if isLast { action() }
+    }
+}
+
 final class ProcessBox: @unchecked Sendable {
     let process: Process
     init(_ process: Process) { self.process = process }
@@ -125,21 +150,20 @@ final class ProcessBox: @unchecked Sendable {
 /// Live `aerospace subscribe` children, so they can be killed synchronously when the app
 /// exits. Otherwise they outlive us until their next write hits the closed pipe.
 enum Subscriptions {
-    private static let lock = NSLock()
-    nonisolated(unsafe) private static var boxes: [ObjectIdentifier: ProcessBox] = [:]
+    private static let boxes = Mutex<[ObjectIdentifier: ProcessBox]>([:])
 
     static func add(_ box: ProcessBox) {
-        lock.withLock { boxes[ObjectIdentifier(box)] = box }
+        boxes.withLock { $0[ObjectIdentifier(box)] = box }
     }
 
     static func remove(_ box: ProcessBox) {
-        _ = lock.withLock { boxes.removeValue(forKey: ObjectIdentifier(box)) }
+        _ = boxes.withLock { $0.removeValue(forKey: ObjectIdentifier(box)) }
     }
 
-    static var liveCount: Int { lock.withLock { boxes.count } }
+    static var liveCount: Int { boxes.withLock { $0.count } }
 
     static func terminateAll() {
-        let live = lock.withLock { Array(boxes.values) }
+        let live = boxes.withLock { Array($0.values) }
         for box in live where box.process.isRunning { box.process.terminate() }
     }
 }

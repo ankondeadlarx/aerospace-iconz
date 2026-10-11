@@ -20,6 +20,7 @@ or the AeroSpace integration, and update it in the same change when a decision c
 - Logic lives in `IconzCore` (no AppKit) and is tested in `IconzCoreTests` through fakes
   of the `AeroSpaceClient` and `MonotonicClock` seams.
 - `AeroSpaceIconz` stays thin AppKit glue; testable glue goes in `AeroSpaceIconzTests`.
+  `CLIClientTests` drives a fake `aerospace` shell script: extend it when the CLI usage changes.
 - Tunables go in `Config.swift`.
 
 ## AeroSpace is live

@@ -20,14 +20,14 @@ public enum CLIParsing {
                 appBundleId: ($0.appBundleId?.isEmpty ?? true) ? nil : $0.appBundleId,
                 appName: $0.appName,
                 appPid: $0.appPid,
-                workspace: $0.workspace
+                workspace: WorkspaceName($0.workspace)
             )
         }
     }
 
     public static func workspaces(from data: Data) throws -> [WorkspaceInfo] {
         try JSONDecoder().decode([RawWorkspace].self, from: data).map {
-            WorkspaceInfo(name: $0.workspace, isFocused: $0.isFocused, isVisible: $0.isVisible)
+            WorkspaceInfo(name: WorkspaceName($0.workspace), isFocused: $0.isFocused, isVisible: $0.isVisible)
         }
     }
 

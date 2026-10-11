@@ -92,9 +92,12 @@ Everything goes through the public `aerospace` CLI.
   (e.g. subscription process tracking).
 - Modules:
   - `IconzCore` (pure, no AppKit), built test-first:
+    - `Snapshot`: what AeroSpace reports (`WorkspaceInfo`, `WindowInfo`), plus the
+      `WorkspaceName` and `AppKey` (bundle id, else app name) types.
     - `CLIParsing`: CLI arguments and JSON decoding.
     - `WorkspaceReducer`: snapshot → workspace groups (filtering, dedupe, stable icon order).
-    - `PillLayout`: groups or unavailable state → pills with every position (`+N`, width-fit, hit-testing).
+    - `PillLayout`: groups or unavailable state → pills with every position (`+N`, width-fit,
+      hit-testing). The placeholder pill has no workspace, so clicks on it do nothing.
     - `RefreshCoordinator`: when to re-read (events, bursts, poll, pause, reconnect backoff); publishes `BarState` on change.
     - `AeroSpaceClient` and `MonotonicClock` seams, `Config`.
   - `AeroSpaceIconz` (executable, AppKit, thin glue): `CLIClient` (runs the CLI,
@@ -128,6 +131,9 @@ The app needs nothing in `~/.config/aerospace/aerospace.toml`. Changes made alon
   waits on `terminationHandler` instead (~18 ms per call).
 - `aerospace subscribe` children outlive a killed app until their next write, so the app
   terminates them explicitly on Quit and SIGTERM.
+- A subscription's pipe EOF and its process exit arrive in either order. Ending the
+  stream on whichever came first dropped trailing events and left the process tracked
+  (17/20 test runs failed); the stream now ends only after both.
 
 ## Decided against
 
@@ -138,10 +144,3 @@ The app needs nothing in `~/.config/aerospace/aerospace.toml`. Changes made alon
 ## Out of scope (v1)
 
 Click an icon to focus that app's window, hover tooltips, TOML config, per-monitor grouping.
-
-## Deferred cleanups (from code review, no behaviour change)
-
-- `name` / `isFocused` / `isVisible` are copied by hand across `WorkspaceInfo` → `WorkspaceGroup`.
-- Workspace names and app keys are bare `String`s.
-- `CLIClient.events()` and `run(_:)` repeat the same Process/Pipe setup.
-- `Subscriptions` uses `NSLock` + `nonisolated(unsafe)`; `Mutex` (Synchronization) would do.

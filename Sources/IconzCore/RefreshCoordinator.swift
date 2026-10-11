@@ -59,7 +59,7 @@ public final class RefreshCoordinator {
         if !paused { nudge() }
     }
 
-    public func focus(workspace: String) async {
+    public func focus(workspace: WorkspaceName) async {
         try? await client.focus(workspace: workspace)
         nudge()
         await refresh()

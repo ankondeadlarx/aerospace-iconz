@@ -13,7 +13,7 @@ final class StatusController: NSObject {
     private var layout: PillLayout
     private var appearanceObservation: NSKeyValueObservation?
 
-    var onSelectWorkspace: ((String) -> Void)?
+    var onSelectWorkspace: ((WorkspaceName) -> Void)?
     var onRefresh: (() -> Void)?
 
     init(config: Config) {
@@ -53,7 +53,6 @@ final class StatusController: NSObject {
             showMenu(from: sender)
             return
         }
-        guard case .workspaces = state else { return }
         // The image is centered in the button; convert the click into image coordinates.
         let point = sender.convert(event.locationInWindow, from: nil)
         let imageOriginX = (sender.bounds.width - layout.totalWidth) / 2

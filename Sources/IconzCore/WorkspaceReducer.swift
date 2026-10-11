@@ -1,11 +1,10 @@
-/// An app shown as one icon. `key` identifies the app (bundle id, or name when there is none);
-/// `pid` is used to look up its icon.
+/// An app shown as one icon. `pid` is used to look up its icon.
 public struct AppRef: Hashable, Sendable {
-    public var key: String
+    public var key: AppKey
     public var bundleId: String?
     public var pid: Int32
 
-    public init(key: String, bundleId: String?, pid: Int32) {
+    public init(key: AppKey, bundleId: String?, pid: Int32) {
         self.key = key
         self.bundleId = bundleId
         self.pid = pid
@@ -14,15 +13,11 @@ public struct AppRef: Hashable, Sendable {
 
 /// A workspace that should be drawn, with its deduped apps in display order.
 public struct WorkspaceGroup: Equatable, Sendable {
-    public var name: String
-    public var isFocused: Bool
-    public var isVisible: Bool
+    public var workspace: WorkspaceInfo
     public var apps: [AppRef]
 
-    public init(name: String, isFocused: Bool, isVisible: Bool, apps: [AppRef]) {
-        self.name = name
-        self.isFocused = isFocused
-        self.isVisible = isVisible
+    public init(workspace: WorkspaceInfo, apps: [AppRef]) {
+        self.workspace = workspace
         self.apps = apps
     }
 }
@@ -31,19 +26,19 @@ public struct WorkspaceGroup: Equatable, Sendable {
 /// don't jump around: apps keep their position while present, newcomers are appended
 /// (ordered by their oldest window id, as a proxy for creation order).
 public struct WorkspaceReducer {
-    private var order: [String: [String]] = [:]
+    private var order: [WorkspaceName: [AppKey]] = [:]
 
     public init() {}
 
     public mutating func groups(for snapshot: Snapshot) -> [WorkspaceGroup] {
         let byWorkspace = Dictionary(grouping: snapshot.windows.sorted { $0.id < $1.id }, by: \.workspace)
-        var newOrder: [String: [String]] = [:]
+        var newOrder: [WorkspaceName: [AppKey]] = [:]
 
         let groups = snapshot.workspaces.compactMap { workspace -> WorkspaceGroup? in
-            var apps: [String: AppRef] = [:]
-            var arrival: [String] = []
+            var apps: [AppKey: AppRef] = [:]
+            var arrival: [AppKey] = []
             for window in byWorkspace[workspace.name] ?? [] {
-                let key = window.appBundleId ?? window.appName
+                let key = AppKey(bundleId: window.appBundleId, appName: window.appName)
                 if apps[key] == nil {
                     apps[key] = AppRef(key: key, bundleId: window.appBundleId, pid: window.appPid)
                     arrival.append(key)
@@ -54,12 +49,7 @@ public struct WorkspaceReducer {
             let kept = (order[workspace.name] ?? []).filter { apps[$0] != nil }
             let keys = kept + arrival.filter { !kept.contains($0) }
             newOrder[workspace.name] = keys
-            return WorkspaceGroup(
-                name: workspace.name,
-                isFocused: workspace.isFocused,
-                isVisible: workspace.isVisible,
-                apps: keys.compactMap { apps[$0] }
-            )
+            return WorkspaceGroup(workspace: workspace, apps: keys.compactMap { apps[$0] })
         }
 
         order = newOrder

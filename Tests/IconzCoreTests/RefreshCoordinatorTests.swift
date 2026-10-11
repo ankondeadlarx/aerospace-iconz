@@ -10,7 +10,7 @@ private final class FakeClient: AeroSpaceClient, @unchecked Sendable {
     /// When set, each snapshot takes 20 ms on this clock, like the real CLI.
     var clock: FakeClock?
     private(set) var snapshotCalls = 0
-    private(set) var focused: [String] = []
+    private(set) var focused: [WorkspaceName] = []
 
     func snapshot() async throws -> Snapshot {
         snapshotCalls += 1
@@ -21,7 +21,7 @@ private final class FakeClient: AeroSpaceClient, @unchecked Sendable {
 
     func events() -> AsyncStream<AeroSpaceEvent> { AsyncStream { $0.finish() } }
 
-    func focus(workspace: String) async throws { focused.append(workspace) }
+    func focus(workspace: WorkspaceName) async throws { focused.append(workspace) }
 }
 
 /// Time only moves when told to. Sleeping jumps straight to the deadline and records it.
@@ -52,7 +52,7 @@ private func makeCoordinator(_ client: FakeClient, clock: FakeClock = FakeClock(
         let client = FakeClient()
         let (coordinator, box) = makeCoordinator(client)
         await coordinator.refresh()
-        #expect(box.states == [.workspaces([WorkspaceGroup(name: "1", isFocused: true, isVisible: true, apps: [])])])
+        #expect(box.states == [.workspaces([WorkspaceGroup(workspace: WorkspaceInfo(name: "1", isFocused: true, isVisible: true), apps: [])])])
     }
 
     @Test func unchangedStateIsNotRepublished() async {

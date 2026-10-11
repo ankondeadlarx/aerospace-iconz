@@ -4,7 +4,7 @@ public protocol AeroSpaceClient: Sendable {
     func snapshot() async throws -> Snapshot
     /// Live events. Finishes when the subscription dies (e.g. AeroSpace quit).
     func events() -> AsyncStream<AeroSpaceEvent>
-    func focus(workspace: String) async throws
+    func focus(workspace: WorkspaceName) async throws
 }
 
 /// Monotonic time as a `Duration` since an arbitrary origin, so tests can drive it.

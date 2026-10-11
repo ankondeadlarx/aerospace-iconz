@@ -1,10 +1,13 @@
 import Testing
 @testable import IconzCore
 
-private func app(_ name: String) -> AppRef { AppRef(key: name, bundleId: name, pid: 1) }
+private func app(_ name: String) -> AppRef { AppRef(key: AppKey(bundleId: name, appName: name), bundleId: name, pid: 1) }
 
 private func group(_ name: String, apps count: Int, focused: Bool = false) -> WorkspaceGroup {
-    WorkspaceGroup(name: name, isFocused: focused, isVisible: focused, apps: (0..<count).map { app("\(name)-\($0)") })
+    WorkspaceGroup(
+        workspace: WorkspaceInfo(name: WorkspaceName(name), isFocused: focused, isVisible: focused),
+        apps: (0..<count).map { app("\(name)-\($0)") }
+    )
 }
 
 /// 10 pt per character keeps the arithmetic readable.
@@ -21,7 +24,7 @@ private func config(maxIcons: Int = 4, maxWidth: Double = 1000) -> LayoutConfig 
 }
 
 private func visibleGroup(_ name: String) -> WorkspaceGroup {
-    WorkspaceGroup(name: name, isFocused: false, isVisible: true, apps: [])
+    WorkspaceGroup(workspace: WorkspaceInfo(name: WorkspaceName(name), isFocused: false, isVisible: true), apps: [])
 }
 
 @Suite struct PillLayoutTests {
@@ -125,14 +128,21 @@ private func visibleGroup(_ name: String) -> WorkspaceGroup {
 
     @Test func unavailableStateIsOneDimmedOutlinedPlaceholderPill() {
         let layout = PillLayout(state: .unavailable, config: config(), measure: measure)
-        #expect(layout.pills.map(\.name) == ["–"])
+        #expect(layout.pills.map(\.label) == ["–"])
         #expect(layout.pills.map(\.emphasis) == [.outline])
         #expect(layout.isDimmed)
     }
 
+    @Test func placeholderPillIsNotAWorkspace() {
+        let layout = PillLayout(state: .unavailable, config: config(), measure: measure)
+        #expect(layout.pills[0].workspace == nil)
+        #expect(layout.workspace(atX: 5) == nil)
+    }
+
     @Test func workspacesStateIsNotDimmed() {
         let layout = PillLayout(state: .workspaces([group("1", apps: 1, focused: true)]), config: config(), measure: measure)
-        #expect(layout.pills.map(\.name) == ["1"])
+        #expect(layout.pills.map(\.label) == ["1"])
+        #expect(layout.pills.map(\.workspace) == ["1"])
         #expect(!layout.isDimmed)
     }
 }
