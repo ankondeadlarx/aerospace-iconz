@@ -4,6 +4,8 @@
 <dict>
     <key>CFBundleExecutable</key>
     <string>AeroSpaceIconz</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>local.aerospace-iconz</string>
     <key>CFBundleName</key>

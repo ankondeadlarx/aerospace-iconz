@@ -29,6 +29,12 @@ Hard requirements; everything below is how they're met.
 
 - One `NSStatusItem`, `LSUIElement` (no Dock icon, no windows).
 - App: `AeroSpaceIconz.app`, bundle id `local.aerospace-iconz`, installed to `~/Applications`.
+- App icon (seen in Launchpad, Finder, Spotlight, Login Items; never in the Dock): the
+  focused pill "2" with three app tiles (orange, blue, purple), floating on a navy-to-plum
+  gradient with a coral glow, no menu bar band. The pill uses the real pill proportions
+  (Visual style) at 9.5 px per pt on the 1024 grid, label at 1.45× its bar size; neighbouring
+  pills would fall outside the squircle, so only the focused one shows. Chosen from a
+  two-round prototype kept on branch `prototype/app-icon`.
 - Fixed `autosaveName` so the position survives restarts, Cmd-drag and Ice.
   AeroSpace's own tray icon goes in Ice's "Always Hidden" section (manual step).
 
@@ -117,7 +123,9 @@ Exact values live in `Config.swift`.
 ## Engineering
 
 - Swift package (Command Line Tools only, no Xcode) + `Makefile` that builds release,
-  assembles the `.app` with `Info.plist` (`LSUIElement`), ad-hoc codesigns, and installs.
+  assembles the `.app` with `Info.plist` (`LSUIElement`) and `AppIcon.icns`, ad-hoc
+  codesigns, and installs. `scripts/make-app-icon.swift` draws the icon with CoreGraphics at
+  every iconset size; `make icon` regenerates the committed `Resources/AppIcon.icns`.
 - Tests: Swift Testing (`import Testing`); XCTest isn't available with CLT.
   `IconzCoreTests` covers the core; `AeroSpaceIconzTests` covers app-target glue
   (e.g. subscription process tracking).
