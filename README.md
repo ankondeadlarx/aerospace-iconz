@@ -12,7 +12,7 @@ workspace as a pill of the app icons on it. Click a pill to switch to that works
 - **One pill per workspace with windows**, plus the one you're on even when it's empty. The
   focused workspace is filled; one visible on another monitor is outlined.
 - **One icon per app**, in a stable order: up to 4 per pill, then `+N`. If the bar gets
-  wider than 400 pt, other pills drop to fewer icons first.
+  wider than 500 pt, other pills drop to fewer icons first.
 - **A native status item**: no Dock icon, no window, and it sits in your existing menu bar,
   so you can Cmd-drag it or manage it with [Ice](https://github.com/jordanbaird/Ice).
 - **Light when idle**: it listens to `aerospace subscribe` and polls only every 3 s as a

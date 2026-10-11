@@ -34,11 +34,11 @@ public struct Config: Sendable {
     public static let standard = Config(
         layout: LayoutConfig(
             metrics: PillMetrics(
-                iconSize: 16, iconGap: 2, labelIconGap: 4, horizontalPadding: 5,
-                pillHeight: 20, cornerRadius: 5, pillSpacing: 6
+                iconSize: 20, iconGap: 2, labelIconGap: 4, horizontalPadding: 6,
+                pillHeight: 24, cornerRadius: 6, pillSpacing: 6
             ),
             maxIconsPerPill: 4,
-            maxTotalWidth: 400,
+            maxTotalWidth: 500,
             placeholderLabel: "–",
             hiddenModes: ["main"]
         ),
@@ -47,7 +47,7 @@ public struct Config: Sendable {
             pollInterval: .seconds(3),
             reconnectBackoff: [.seconds(1), .seconds(2), .seconds(5), .seconds(10)]
         ),
-        labelFontSize: 11,
+        labelFontSize: 12,
         labelFontWeight: 0.23,
         overflowLabelAlpha: 0.55,
         focusedFillAlpha: 0.2,

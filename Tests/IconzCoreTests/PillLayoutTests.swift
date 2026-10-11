@@ -227,4 +227,12 @@ private func visibleGroup(_ name: String) -> WorkspaceGroup {
         #expect(layout.pills.map(\.workspace) == ["1"])
         #expect(!layout.isDimmed)
     }
+
+    /// The status item button is 24 pt tall (measured live on a notched MacBook); a taller
+    /// image gets squeezed.
+    @Test func standardPillsFillTheStatusItemWith20PointIcons() {
+        let metrics = Config.standard.layout.metrics
+        #expect(metrics.pillHeight == 24)
+        #expect(metrics.iconSize == 20)
+    }
 }

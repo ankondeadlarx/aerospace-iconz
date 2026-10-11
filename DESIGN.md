@@ -31,8 +31,8 @@ Hard requirements; everything below is how they're met.
 - App: `AeroSpaceIconz.app`, bundle id `local.aerospace-iconz`, installed to `~/Applications`.
 - App icon (seen in Launchpad, Finder, Spotlight, Login Items; never in the Dock): the
   focused pill "2" with three app tiles (orange, blue, purple), floating on a navy-to-plum
-  gradient with a coral glow, no menu bar band. The pill uses the real pill proportions
-  (Visual style) at 9.5 px per pt on the 1024 grid, label at 1.45× its bar size; neighbouring
+  gradient with a coral glow, no menu bar band. The pill uses v1's pill proportions
+  (16 pt icons, 20 pt tall) at 9.5 px per pt on the 1024 grid, label at 1.45× its bar size; neighbouring
   pills would fall outside the squircle, so only the focused one shows. Chosen from a
   two-round prototype kept on branch `prototype/app-icon`.
 - Fixed `autosaveName` so the position survives restarts, Cmd-drag and Ice.
@@ -88,7 +88,7 @@ Everything goes through the public `aerospace` CLI.
     order); an app that leaves and comes back goes to the end.
   - Max 4 icons per pill, then `+N`.
   - Every window in `list-windows` counts (floating, minimized, hidden).
-- **Width budget:** if the total width exceeds `maxTotalWidth` (400 pt), lower the
+- **Width budget:** if the total width exceeds `maxTotalWidth` (500 pt; 400 with v1's 16 pt icons), lower the
   per-pill icon cap for non-focused pills 4 → 3 → 2 → 1 until it fits. The focused pill keeps 4.
 - **Mode badge:** while AeroSpace's binding mode is not in `hiddenModes` (default `main`),
   a badge pill with the mode name comes before the first workspace pill. It counts toward
@@ -101,9 +101,12 @@ Everything goes through the public `aerospace` CLI.
 
 Exact values live in `Config.swift`.
 
-- Icons 16 pt, 2 pt gap, 4 pt between label and first icon; pills 20 pt tall, 5 pt
-  horizontal padding, 5 pt corner radius, 6 pt between pills.
-- Label: system font 11 pt, medium, monospaced digits. `+N` at 55 % of the label color.
+- Icons 20 pt, 2 pt gap, 4 pt between label and first icon; pills 24 pt tall (the full
+  height of the status item, see Verified), 6 pt horizontal padding, 6 pt corner radius,
+  6 pt between pills. Chosen over 16 pt icons (v1) and four other styles (tabs, segmented
+  control, overlapping stacks, number badged on the icon) from a prototype kept on branch
+  `prototype/menubar-styles`.
+- Label: system font 12 pt, medium, monospaced digits. `+N` at 55 % of the label color.
 - Focused pill: fill with menu bar label color at ~20 % alpha. Visible-not-focused:
   1 pt stroke at 35 %. Others: no fill. Icons always full color. Placeholder: whole image at 40 %.
 - Mode badge: same size and corner radius as a pill, `systemOrange` fill, white label.
@@ -201,6 +204,8 @@ The app needs nothing in `~/.config/aerospace/aerospace.toml`. Changes made alon
   (≈ 0.27 % at one per poll), which the app's own figure doesn't include; with the poll
   skipping it 0.150 %. AeroSpace's own CPU moved 2.4–3.1 % with user activity in every run,
   so it can't separate the builds.
+- The status item button is 24 pt tall on a notched MacBook (window 37 pt, logged from the
+  running app); an image taller than that is squeezed, so pills top out at 24 pt.
 
 ## Decided against
 
