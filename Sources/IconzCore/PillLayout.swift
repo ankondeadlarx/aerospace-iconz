@@ -28,12 +28,18 @@ public struct LayoutConfig: Equatable, Sendable {
     public var maxTotalWidth: Double
     /// Label of the single pill shown while AeroSpace can't be reached.
     public var placeholderLabel: String
+    /// Binding modes that get no badge.
+    public var hiddenModes: Set<String>
 
-    public init(metrics: PillMetrics, maxIconsPerPill: Int, maxTotalWidth: Double, placeholderLabel: String) {
+    public init(
+        metrics: PillMetrics, maxIconsPerPill: Int, maxTotalWidth: Double, placeholderLabel: String,
+        hiddenModes: Set<String>
+    ) {
         self.metrics = metrics
         self.maxIconsPerPill = maxIconsPerPill
         self.maxTotalWidth = maxTotalWidth
         self.placeholderLabel = placeholderLabel
+        self.hiddenModes = hiddenModes
     }
 }
 
@@ -44,12 +50,14 @@ public enum PillEmphasis: Equatable, Sendable {
     /// Visible on another monitor, or the placeholder.
     case outline
     case none
+    /// The binding-mode badge.
+    case badge
 }
 
 /// A pill ready to draw: the icons that fit and how many were cut.
 public struct Pill: Equatable, Sendable {
     public var label: String
-    /// The workspace a click switches to; `nil` for the placeholder.
+    /// The workspace a click switches to; `nil` for the placeholder and the mode badge.
     public var workspace: WorkspaceName?
     public var emphasis: PillEmphasis
     public var icons: [AppRef]
@@ -79,8 +87,8 @@ public struct PillLayout: Equatable, Sendable {
 
     public init(state: BarState, config: LayoutConfig, measure: (String) -> Double) {
         switch state {
-        case .workspaces(let groups):
-            self.init(groups: groups, config: config, measure: measure)
+        case .workspaces(let groups, let mode):
+            self.init(groups: groups, mode: mode, config: config, measure: measure)
         case .unavailable:
             let placeholder = PillSource(
                 label: config.placeholderLabel, workspace: nil, isFocused: false, emphasis: .outline, apps: []
@@ -90,8 +98,12 @@ public struct PillLayout: Equatable, Sendable {
         }
     }
 
-    public init(groups: [WorkspaceGroup], config: LayoutConfig, measure: (String) -> Double) {
-        let sources = groups.map { group in
+    public init(groups: [WorkspaceGroup], mode: String? = nil, config: LayoutConfig, measure: (String) -> Double) {
+        var sources: [PillSource] = []
+        if let mode, !config.hiddenModes.contains(mode) {
+            sources.append(PillSource(label: mode, workspace: nil, isFocused: false, emphasis: .badge, apps: []))
+        }
+        sources += groups.map { group in
             let workspace = group.workspace
             return PillSource(
                 label: workspace.name.rawValue,

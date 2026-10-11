@@ -4,7 +4,8 @@ public enum PauseReason: Hashable, Sendable {
 
 public enum BarState: Equatable, Sendable {
     case unavailable
-    case workspaces([WorkspaceGroup])
+    /// `mode` is the binding mode, `nil` when unknown.
+    case workspaces([WorkspaceGroup], mode: String? = nil)
 }
 
 /// Decides when to re-read AeroSpace and publishes the result when it changes.
@@ -14,6 +15,9 @@ public enum BarState: Equatable, Sendable {
 /// - A slow poll covers changes AeroSpace has no event for. It stops entirely while any
 ///   `PauseReason` holds, and resuming refreshes at once.
 /// - Refreshes never overlap: a request during one in flight runs once more afterwards.
+/// - The binding mode is read alongside every refresh except the poll's: each mode change
+///   fires an event, so the poll can reuse the last mode and spare a CLI call every interval.
+///   After a failed read, the next refresh of any kind reads it again.
 @MainActor
 public final class RefreshCoordinator {
     private let client: any AeroSpaceClient
@@ -22,6 +26,9 @@ public final class RefreshCoordinator {
     private let publish: @MainActor (BarState) -> Void
 
     private var reducer = WorkspaceReducer()
+    private var mode: String?
+    /// The next refresh must read the mode, even the poll's.
+    private var modeIsStale = true
     private var lastState: BarState?
     private var isRefreshing = false
     private var refreshPending = false
@@ -92,6 +99,11 @@ public final class RefreshCoordinator {
     }
 
     public func refresh() async {
+        await refresh(readingMode: true)
+    }
+
+    func refresh(readingMode: Bool) async {
+        if readingMode { modeIsStale = true }
         guard !isRefreshing else {
             refreshPending = true
             return
@@ -100,12 +112,28 @@ public final class RefreshCoordinator {
         defer { isRefreshing = false }
         repeat {
             refreshPending = false
+            let readsMode = modeIsStale
+            modeIsStale = false
             let state: BarState
             do {
-                state = .workspaces(reducer.groups(for: try await client.snapshot()))
+                async let modeRead = readsMode ? readMode() : nil
+                let snapshot = try await client.snapshot()
+                switch await modeRead {
+                case .success(let current)?:
+                    mode = current
+                case .failure(let error)?:
+                    // Only decides the badge: a failed read hides it, not the whole bar.
+                    if !(error is CancellationError) { mode = nil }
+                    modeIsStale = true
+                case nil:
+                    break
+                }
+                state = .workspaces(reducer.groups(for: snapshot), mode: mode)
             } catch is CancellationError {
+                if readsMode { modeIsStale = true }
                 continue
             } catch {
+                modeIsStale = true
                 state = .unavailable
             }
             if state != lastState {
@@ -113,6 +141,10 @@ public final class RefreshCoordinator {
                 publish(state)
             }
         } while refreshPending
+    }
+
+    private func readMode() async -> Result<String?, any Error> {
+        do { return .success(try await client.mode()) } catch { return .failure(error) }
     }
 
     private func subscriptionLoop() async {
@@ -136,7 +168,7 @@ public final class RefreshCoordinator {
     private func pollLoop() async {
         while true {
             do { try await clock.sleep(for: timing.pollInterval) } catch { return }
-            await refresh()
+            await refresh(readingMode: false)
         }
     }
 }

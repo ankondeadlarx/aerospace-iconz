@@ -6,8 +6,11 @@ import Testing
 /// Writes a stand-in `aerospace` script that answers only the exact command lines
 /// `CLIClient` should send (anything else exits 2, as if the flags were wrong).
 /// `subscribe` prints two events, then exits or (if `subscriptionStaysAlive`) keeps running.
-/// With `listCommandsHang`, the `list-*` commands never answer.
-private func fakeAerospace(subscriptionStaysAlive: Bool = false, listCommandsHang: Bool = false) throws -> String {
+/// With `listCommandsHang`, the `list-*` commands never answer. With `modesFail`, only
+/// `list-modes` fails.
+private func fakeAerospace(
+    subscriptionStaysAlive: Bool = false, listCommandsHang: Bool = false, modesFail: Bool = false
+) throws -> String {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let path = directory.appendingPathComponent("aerospace").path
@@ -21,6 +24,8 @@ private func fakeAerospace(subscriptionStaysAlive: Bool = false, listCommandsHan
         \(hang) echo '[{"app-bundle-id":"a.b","app-name":"A","app-pid":1,"window-id":5,"workspace":"1"}]' ;;
       "list-workspaces --all --json --format %{workspace} %{workspace-is-focused} %{workspace-is-visible}")
         \(hang) echo '[{"workspace":"1","workspace-is-focused":true,"workspace-is-visible":true}]' ;;
+      "list-modes --current --json")
+        \(hang) \(modesFail ? "exit 1;" : "") echo '[{"mode-id":"service"}]' ;;
       "workspace 1") ;;
       'workspace '*) exit 1 ;;
       "subscribe --all")
@@ -48,6 +53,16 @@ private func makeClient(_ path: String, timeout: Duration = .seconds(5)) -> CLIC
             workspaces: [WorkspaceInfo(name: "1", isFocused: true, isVisible: true)],
             windows: [WindowInfo(id: 5, appBundleId: "a.b", appName: "A", appPid: 1, workspace: "1")]
         ))
+    }
+
+    @Test func modeReadsTheCurrentMode() async throws {
+        let client = makeClient(try fakeAerospace())
+        #expect(try await client.mode() == "service")
+    }
+
+    @Test func modeThrowsWhenListModesFails() async throws {
+        let client = makeClient(try fakeAerospace(modesFail: true))
+        await #expect(throws: CLIError.self) { try await client.mode() }
     }
 
     @Test func focusSucceedsWhenTheCommandDoes() async throws {

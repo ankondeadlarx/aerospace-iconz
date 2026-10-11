@@ -1,15 +1,17 @@
 import AppKit
 import IconzCore
 
-/// `AeroSpaceIconz --render-png <dir>`: renders the current AeroSpace state in light and
-/// dark appearance to PNGs (creating `<dir>` if needed) and exits. For checking the drawing
-/// without looking at the menu bar.
+/// `AeroSpaceIconz --render-png <dir> [--mode <name>]`: renders the current AeroSpace state in
+/// light and dark appearance to PNGs (creating `<dir>` if needed) and exits. `--mode` stands
+/// in for the binding mode, to see the badge without entering that mode. For checking the
+/// drawing without looking at the menu bar.
 @MainActor
 enum DebugRender {
     static func runIfRequested() {
         let arguments = CommandLine.arguments
         guard let flag = arguments.firstIndex(of: "--render-png"), flag + 1 < arguments.count else { return }
         let directory = URL(fileURLWithPath: arguments[flag + 1])
+        let modeOverride = arguments.firstIndex(of: "--mode").flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
         let config = Config.standard
         let client = CLIClient(candidates: config.aerospaceExecutableCandidates, timeout: config.cliTimeout)
 
@@ -17,6 +19,7 @@ enum DebugRender {
             var state = BarState.unavailable
             await RefreshCoordinator(client: client, timing: config.timing) { state = $0 }.refresh()
             if state == .unavailable { print("AeroSpace not reachable: rendering the placeholder.") }
+            if let modeOverride, case .workspaces(let groups, _) = state { state = .workspaces(groups, mode: modeOverride) }
 
             let renderer = PillRenderer(config: config, icons: IconCache())
             let image = renderer.image(for: renderer.layout(for: state)).image

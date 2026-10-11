@@ -27,6 +27,10 @@ struct CLIClient: AeroSpaceClient {
         )
     }
 
+    func mode() async throws -> String? {
+        try CLIParsing.mode(from: try await run(CLIParsing.listModesArguments))
+    }
+
     func focus(workspace: WorkspaceName) async throws {
         _ = try await run(["workspace", workspace.rawValue])
     }

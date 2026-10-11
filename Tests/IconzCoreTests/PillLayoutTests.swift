@@ -20,7 +20,8 @@ private let metrics = PillMetrics(
 )
 
 private func config(maxIcons: Int = 4, maxWidth: Double = 1000) -> LayoutConfig {
-    LayoutConfig(metrics: metrics, maxIconsPerPill: maxIcons, maxTotalWidth: maxWidth, placeholderLabel: "–")
+    LayoutConfig(metrics: metrics, maxIconsPerPill: maxIcons, maxTotalWidth: maxWidth, placeholderLabel: "–",
+                 hiddenModes: ["main"])
 }
 
 private func visibleGroup(_ name: String) -> WorkspaceGroup {
@@ -144,6 +145,43 @@ private func visibleGroup(_ name: String) -> WorkspaceGroup {
         let layout = PillLayout(state: .unavailable, config: config(), measure: measure)
         #expect(layout.pills[0].workspace == nil)
         #expect(layout.workspace(atX: 5) == nil)
+    }
+
+    @Test func shownModeIsABadgeBeforeTheFirstPill() {
+        let layout = PillLayout(state: .workspaces([group("1", apps: 1, focused: true)], mode: "service"),
+                                config: config(), measure: measure)
+        #expect(layout.pills.map(\.label) == ["service", "1"])
+        #expect(layout.pills.map(\.emphasis) == [.badge, .fill])
+        // Badge: padding + "service" (70) + padding, then spacing 6 before pill "1".
+        #expect(layout.frames.map(\.x) == [0, 86])
+    }
+
+    @Test func hiddenOrUnknownModeHasNoBadge() {
+        for mode in ["main", nil] as [String?] {
+            let layout = PillLayout(state: .workspaces([group("1", apps: 1, focused: true)], mode: mode),
+                                    config: config(), measure: measure)
+            #expect(layout.pills.map(\.label) == ["1"])
+        }
+    }
+
+    @Test func badgeIsNotAWorkspace() {
+        let layout = PillLayout(state: .workspaces([group("1", apps: 0, focused: true)], mode: "service"),
+                                config: config(), measure: measure)
+        #expect(layout.pills[0].workspace == nil)
+        #expect(layout.workspace(atX: 40) == nil)
+        #expect(layout.workspace(atX: 90) == "1")
+    }
+
+    @Test func badgeCountsTowardTheWidthBudgetButOnlyUnfocusedPillsShrink() {
+        // 6 pt/char: badge 52 + 6, focused pill 90 + 6; pill "2" is 68 at cap 2 (total 222)
+        // and 50 at cap 1 (total 204), so a 210 budget needs cap 1.
+        let narrow: @Sendable (String) -> Double = { Double($0.count) * 6 }
+        let groups = [group("1", apps: 4, focused: true), group("2", apps: 4)]
+        let layout = PillLayout(state: .workspaces(groups, mode: "service"),
+                                config: config(maxWidth: 210), measure: narrow)
+        #expect(layout.pills.map(\.label) == ["service", "1", "2"])
+        #expect(layout.pills.map(\.icons.count) == [0, 4, 1])
+        #expect(layout.totalWidth == 204)
     }
 
     @Test func workspacesStateIsNotDimmed() {

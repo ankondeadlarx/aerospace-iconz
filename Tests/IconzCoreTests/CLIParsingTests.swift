@@ -41,6 +41,15 @@ import Testing
         ])
     }
 
+    @Test func parsesCurrentMode() throws {
+        let json = #"[{ "mode-id" : "service" }]"#
+        #expect(try CLIParsing.mode(from: Data(json.utf8)) == "service")
+    }
+
+    @Test func noCurrentModeIsNil() throws {
+        #expect(try CLIParsing.mode(from: Data("[]".utf8)) == nil)
+    }
+
     @Test func malformedJSONThrows() {
         #expect(throws: (any Error).self) { try CLIParsing.windows(from: Data("nope".utf8)) }
     }

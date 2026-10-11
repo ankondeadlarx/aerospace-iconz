@@ -44,6 +44,11 @@ Everything goes through the public `aerospace` CLI.
   - `aerospace list-windows --all --json --format '%{window-id} %{app-bundle-id} %{app-name} %{app-pid} %{workspace}'`
     (`--format` is required: plain `--json` omits bundle id and workspace)
   - `aerospace list-workspaces --all --json --format '%{workspace} %{workspace-is-focused} %{workspace-is-visible}'`
+  - plus `aerospace list-modes --current --json` (the binding mode, for the mode badge) in
+    parallel, on every re-read except the idle poll's. Every mode change fires an event, so
+    the poll reuses the last mode; reading it there too cost ~0.3 % idle CPU (see Verified).
+    After a failed read (of either kind) the next re-read, poll included, reads it again.
+    The mode is decoration: if only its read fails, the badge is hidden and the bar stays available.
   - Redraw only when the derived model differs.
   - Re-reads never overlap: one requested while another is in flight runs once, afterwards.
   - Every CLI call is killed after 2 s (`cliTimeout`), so a stuck `aerospace` can't stall
@@ -74,6 +79,9 @@ Everything goes through the public `aerospace` CLI.
   - Every window in `list-windows` counts (floating, minimized, hidden).
 - **Width budget:** if the total width exceeds `maxTotalWidth` (400 pt), lower the
   per-pill icon cap for non-focused pills 4 → 3 → 2 → 1 until it fits. The focused pill keeps 4.
+- **Mode badge:** while AeroSpace's binding mode is not in `hiddenModes` (default `main`),
+  a badge pill with the mode name comes before the first workspace pill. It counts toward
+  the width budget but has no icons, so it's never shrunk. Clicking it does nothing.
 - **Multi-monitor:** one item, all workspaces. Focused = fill; a non-empty workspace visible
   on another monitor = outline. An empty workspace on another monitor is hidden like any
   other empty one: the only empty pill ever shown is the focused workspace.
@@ -87,6 +95,7 @@ Exact values live in `Config.swift`.
 - Label: system font 11 pt, medium, monospaced digits. `+N` at 55 % of the label color.
 - Focused pill: fill with menu bar label color at ~20 % alpha. Visible-not-focused:
   1 pt stroke at 35 %. Others: no fill. Icons always full color. Placeholder: whole image at 40 %.
+- Mode badge: same size and corner radius as a pill, `systemOrange` fill, white label.
 - Rendered as one `NSImage` (drawing-handler based, so system colors resolve at draw time)
   on the status item button, redrawn when the button's `effectiveAppearance` changes.
   `PillLayout` computes every position (pill, label, each icon, `+N`); the renderer only
@@ -99,7 +108,7 @@ Exact values live in `Config.swift`.
 ## Interaction
 
 - Left-click pill → switch workspace. A click in the gap between pills goes to the nearer
-  one; past either end, to the end pill.
+  one; past either end, to the end pill. The mode badge and the placeholder do nothing.
 - Right-click or Ctrl-click → menu: Refresh, Launch at Login (`SMAppService.mainApp`), Quit.
   - Launch at Login is checked when enabled. When macOS needs the user to allow it, it shows
     mixed with "(Allow in System Settings…)" and opens Login Items. A failed toggle shows an alert.
@@ -113,12 +122,13 @@ Exact values live in `Config.swift`.
   (e.g. subscription process tracking).
 - Modules:
   - `IconzCore` (pure, no AppKit), built test-first:
-    - `Snapshot`: what AeroSpace reports (`WorkspaceInfo`, `WindowInfo`), plus the
-      `WorkspaceName` and `AppKey` (bundle id, else app name) types.
+    - `Snapshot`: what AeroSpace reports (`WorkspaceInfo`, `WindowInfo`, the binding mode),
+      plus the `WorkspaceName` and `AppKey` (bundle id, else app name) types.
     - `CLIParsing`: CLI arguments and JSON decoding; `LineSplitter` for the `subscribe` stream.
     - `WorkspaceReducer`: snapshot → workspace groups (filtering, dedupe, stable icon order).
-    - `PillLayout`: groups or unavailable state → pills with every position (`+N`, width-fit,
-      hit-testing). The placeholder pill has no workspace, so clicks on it do nothing.
+    - `PillLayout`: groups or unavailable state → pills with every position (mode badge, `+N`,
+      width-fit, hit-testing). The placeholder and the badge have no workspace, so clicks on
+      them do nothing.
     - `RefreshCoordinator`: when to re-read (events, bursts, poll, pause reasons, reconnect
       backoff); publishes `BarState` on change.
     - `AeroSpaceClient` and `MonotonicClock` seams, `Config`.
@@ -130,10 +140,11 @@ Exact values live in `Config.swift`.
 - Seam: `AeroSpaceClient` (`snapshot()`, `events()`, `focus(workspace:)`). The real
   implementation runs the CLI; tests use a fake. Time goes through `MonotonicClock`
   (`SystemClock` in the app, a manually advanced fake in tests).
-- Debug: `AeroSpaceIconz --render-png <dir>` reads the live AeroSpace, renders the current
-  state in light and dark appearance to PNGs in `<dir>` (created if needed), prints their
-  paths and exits; it says so when AeroSpace wasn't reachable. For checking the drawing
-  without the menu bar.
+- Debug: `AeroSpaceIconz --render-png <dir> [--mode <name>]` reads the live AeroSpace, renders
+  the current state in light and dark appearance to PNGs in `<dir>` (created if needed),
+  prints their paths and exits; it says so when AeroSpace wasn't reachable. `--mode`
+  overrides the binding mode, to see the badge without entering that mode. For checking
+  the drawing without the menu bar.
 - All tunables live in one `Config` struct (no TOML in v1).
 
 ## aerospace.toml
@@ -160,12 +171,38 @@ The app needs nothing in `~/.config/aerospace/aerospace.toml`. Changes made alon
   stream on whichever came first dropped trailing events and left the process tracked
   (17/20 test runs failed); the stream now ends only after both.
 
+- Idle CPU over 5 minutes (CPU-time delta from `ps`, at the 3 s poll): v1 app 0.143 %;
+  with `list-modes` on every poll 0.213 %, plus each `aerospace` child costs ~8 ms CPU
+  (≈ 0.27 % at one per poll), which the app's own figure doesn't include; with the poll
+  skipping it 0.150 %. AeroSpace's own CPU moved 2.4–3.1 % with user activity in every run,
+  so it can't separate the builds.
+
 ## Decided against
 
 - Normalizing app icons to one visual size. Some icons fill more of their box than
   others (Obsidian is edge to edge; VS Code, Raycast, Ice are slightly small); the user
   chose to keep icons exactly as macOS provides them.
 
-## Out of scope (v1)
+## Roadmap
 
-Click an icon to focus that app's window, hover tooltips, TOML config, per-monitor grouping.
+Personal tool first: nothing that blocks a public release later, but no TOML config,
+notarization or Homebrew cask until someone asks. The hard requirements stay hard; a
+feature that breaks one is cut or redesigned.
+
+Each feature: spec change here → test-first in `IconzCore` → `make test` → `--render-png`
+→ `make install` and live with it for a day. On a short-lived branch, `/code-review`,
+merged locally, then tagged.
+
+1. **v1.1 Mode badge** (above). Rule: idle CPU over 5 minutes may not rise measurably
+   above v1 (≈0.1 % average). Reading the mode on every poll broke it, so the poll skips it.
+2. **v1.2 Click an icon to focus.** `focus --window-id` on that app's oldest window on
+   that workspace; if that app is already focused there, cycle to its next window. The
+   focused window is read at click time (`list-windows --focused`), not kept in the model.
+   Label, padding and gaps still switch workspace. `+N` opens the window menu (v1.3).
+3. **v1.3 Per-pill window menu.** Right-click a pill → that workspace's windows (icon +
+   title, an empty title shows the app name, middle-truncated at ~60 chars, in icon order
+   then window id, focused one checked), separator, then Refresh / Launch at Login / Quit.
+   Titles and focus are read when the menu opens, never stored in the model. A failed read
+   shows a disabled "Couldn't read windows" row; the placeholder shows only the global items.
+4. **Deferred:** pinned/always-shown workspaces (if wanted); per-monitor grouping (when
+   docking makes it hurt); hover tooltips; TOML config. Drag an icon onto a pill: probably never.

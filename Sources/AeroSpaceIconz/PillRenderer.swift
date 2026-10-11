@@ -57,11 +57,15 @@ struct PillRenderer {
                     label.withAlphaComponent(config.visibleStrokeAlpha).setStroke()
                     path.lineWidth = config.visibleStrokeWidth
                     path.stroke()
+                case .badge:
+                    NSColor.systemOrange.setFill()
+                    path.fill()
                 case .none:
                     break
                 }
 
-                drawText(pill.label, at: frame.labelX, height: metrics.pillHeight, font: font, color: label)
+                drawText(pill.label, at: frame.labelX, height: metrics.pillHeight, font: font,
+                         color: pill.emphasis == .badge ? .white : label)
                 for (icon, x) in zip(images[index], frame.iconXs) {
                     let y = (metrics.pillHeight - metrics.iconSize) / 2
                     icon.draw(in: NSRect(x: x, y: y, width: metrics.iconSize, height: metrics.iconSize))

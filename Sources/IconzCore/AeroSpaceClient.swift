@@ -2,6 +2,8 @@
 public protocol AeroSpaceClient: Sendable {
     /// Current workspaces and windows. Throws if AeroSpace can't be reached.
     func snapshot() async throws -> Snapshot
+    /// The current binding mode (`"main"`, `"service"`, …), or `nil` if there is none.
+    func mode() async throws -> String?
     /// Live events. Finishes when the subscription dies (e.g. AeroSpace quit).
     func events() -> AsyncStream<AeroSpaceEvent>
     func focus(workspace: WorkspaceName) async throws

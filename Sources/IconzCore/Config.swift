@@ -39,7 +39,8 @@ public struct Config: Sendable {
             ),
             maxIconsPerPill: 4,
             maxTotalWidth: 400,
-            placeholderLabel: "–"
+            placeholderLabel: "–",
+            hiddenModes: ["main"]
         ),
         timing: Timing(
             burstDelays: [.milliseconds(100), .milliseconds(500)],

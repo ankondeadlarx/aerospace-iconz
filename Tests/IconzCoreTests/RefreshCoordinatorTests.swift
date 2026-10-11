@@ -13,6 +13,9 @@ private final class FakeClient: AeroSpaceClient, Sendable {
         var failure: (any Error & Sendable)?
         var clock: FakeClock?
         var snapshotCalls = 0
+        var mode: String?
+        var modeFailure: (any Error & Sendable)?
+        var modeCalls = 0
         var focused: [WorkspaceName] = []
         var subscriptions: [AsyncStream<AeroSpaceEvent>.Continuation] = []
         var endedSubscriptions = 0
@@ -36,6 +39,15 @@ private final class FakeClient: AeroSpaceClient, Sendable {
         set { state.withLock { $0.clock = newValue } }
     }
     var snapshotCalls: Int { state.withLock { $0.snapshotCalls } }
+    var mode: String? {
+        get { state.withLock { $0.mode } }
+        set { state.withLock { $0.mode = newValue } }
+    }
+    var modeFailure: (any Error & Sendable)? {
+        get { state.withLock { $0.modeFailure } }
+        set { state.withLock { $0.modeFailure = newValue } }
+    }
+    var modeCalls: Int { state.withLock { $0.modeCalls } }
     var focused: [WorkspaceName] { state.withLock { $0.focused } }
     var subscriptionCount: Int { state.withLock { $0.subscriptions.count } }
     var openSubscriptionCount: Int { state.withLock { $0.subscriptions.count - $0.endedSubscriptions } }
@@ -51,6 +63,15 @@ private final class FakeClient: AeroSpaceClient, Sendable {
         }
         if let failure { throw failure }
         return result
+    }
+
+    func mode() async throws -> String? {
+        let (mode, failure) = state.withLock { s in
+            s.modeCalls += 1
+            return (s.mode, s.modeFailure)
+        }
+        if let failure { throw failure }
+        return mode
     }
 
     func events() -> AsyncStream<AeroSpaceEvent> {
@@ -150,6 +171,9 @@ private final class ManualClock: MonotonicClock, Sendable {
 
 @MainActor private final class Published { var states: [BarState] = [] }
 
+/// The group for `FakeClient`'s default snapshot.
+private let focusedOne = WorkspaceGroup(workspace: WorkspaceInfo(name: "1", isFocused: true, isVisible: true), apps: [])
+
 @MainActor
 private func makeCoordinator(
     _ client: FakeClient, clock: any MonotonicClock = FakeClock(), timing: Timing = Config.standard.timing
@@ -196,6 +220,50 @@ private func eventually(
         #expect(published.states.count == 2)
     }
 
+    @Test func modeChangeAloneIsRepublished() async {
+        let client = FakeClient()
+        client.mode = "main"
+        let (coordinator, published) = makeCoordinator(client)
+        await coordinator.refresh()
+        client.mode = "service"
+        await coordinator.refresh()
+        #expect(published.states == [.workspaces([focusedOne], mode: "main"), .workspaces([focusedOne], mode: "service")])
+    }
+
+    @Test func refreshWithoutTheModeKeepsTheLastOne() async {
+        let client = FakeClient()
+        client.mode = "service"
+        let (coordinator, published) = makeCoordinator(client)
+        await coordinator.refresh()
+        client.mode = "main"
+        await coordinator.refresh(readingMode: false)
+        #expect(client.modeCalls == 1)
+        #expect(published.states == [.workspaces([focusedOne], mode: "service")])
+    }
+
+    @Test func failedModeReadHidesTheBadgeAndTheNextRefreshRetries() async {
+        let client = FakeClient()
+        client.mode = "service"
+        client.modeFailure = Unreachable()
+        let (coordinator, published) = makeCoordinator(client)
+        await coordinator.refresh()
+        #expect(published.states == [.workspaces([focusedOne], mode: nil)])
+        client.modeFailure = nil
+        await coordinator.refresh(readingMode: false)
+        #expect(published.states.last == .workspaces([focusedOne], mode: "service"))
+    }
+
+    @Test func refreshAfterAFailedSnapshotReadsTheMode() async {
+        let client = FakeClient()
+        client.failure = Unreachable()
+        let (coordinator, published) = makeCoordinator(client)
+        await coordinator.refresh()
+        client.failure = nil
+        client.mode = "service"
+        await coordinator.refresh(readingMode: false)
+        #expect(published.states.last == .workspaces([focusedOne], mode: "service"))
+    }
+
     @Test func unreachableAeroSpacePublishesUnavailableThenRecovers() async {
         let client = FakeClient()
         client.failure = Unreachable()
@@ -234,7 +302,7 @@ private func eventually(
         await first.value
 
         #expect(client.snapshotCalls == 2)
-        guard case .workspaces(let groups) = published.states.last else {
+        guard case .workspaces(let groups, _) = published.states.last else {
             Issue.record("expected workspaces, got \(published.states)")
             return
         }
@@ -351,6 +419,19 @@ private func eventually(
         clock.advance(by: .seconds(60) - .milliseconds(600))
         await eventually { client.snapshotCalls == 4 }
         await eventually { clock.pendingDeadlines.contains(.seconds(120)) }
+    }
+
+    @Test func pollDoesNotReadTheMode() async {
+        let client = FakeClient(), clock = ManualClock()
+        let coordinator = await start(client, clock)
+        defer { coordinator.stop() }
+
+        clock.advance(by: .milliseconds(600))  // the start-up burst reads it each time
+        await eventually { client.snapshotCalls == 3 }
+        #expect(client.modeCalls == 3)
+        clock.advance(by: .seconds(60) - .milliseconds(600))
+        await eventually { client.snapshotCalls == 4 }
+        #expect(client.modeCalls == 3)
     }
 
     @Test func pausingStopsThePollAndResumingRefreshesAtOnce() async {
