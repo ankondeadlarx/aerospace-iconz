@@ -2,7 +2,8 @@ import AppKit
 import IconzCore
 
 /// `AeroSpaceIconz --render-png <dir>`: renders the current AeroSpace state in light and
-/// dark appearance to PNGs and exits. For checking the drawing without looking at the menu bar.
+/// dark appearance to PNGs (creating `<dir>` if needed) and exits. For checking the drawing
+/// without looking at the menu bar.
 @MainActor
 enum DebugRender {
     static func runIfRequested() {
@@ -10,23 +11,34 @@ enum DebugRender {
         guard let flag = arguments.firstIndex(of: "--render-png"), flag + 1 < arguments.count else { return }
         let directory = URL(fileURLWithPath: arguments[flag + 1])
         let config = Config.standard
-        let client = CLIClient(candidates: config.aerospaceExecutableCandidates)
+        let client = CLIClient(candidates: config.aerospaceExecutableCandidates, timeout: config.cliTimeout)
 
         Task { @MainActor in
-            var reducer = WorkspaceReducer()
+            var state = BarState.unavailable
+            await RefreshCoordinator(client: client, timing: config.timing) { state = $0 }.refresh()
+            if state == .unavailable { print("AeroSpace not reachable: rendering the placeholder.") }
+
             let renderer = PillRenderer(config: config, icons: IconCache())
-            let state: BarState = (try? await client.snapshot()).map { .workspaces(reducer.groups(for: $0)) } ?? .unavailable
-            let layout = renderer.layout(for: state)
-            for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
-                write(renderer.image(for: layout), appearance: NSAppearance(named: appearance)!,
-                      to: directory.appendingPathComponent("pills-\(name).png"))
+            let image = renderer.image(for: renderer.layout(for: state)).image
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+                    let url = directory.appendingPathComponent("pills-\(name).png")
+                    try write(image, appearance: NSAppearance(named: appearance)!, to: url)
+                    print(url.path)
+                }
+                exit(0)
+            } catch {
+                FileHandle.standardError.write(Data("--render-png failed: \(error)\n".utf8))
+                exit(1)
             }
-            exit(0)
         }
         NSApplication.shared.run()
     }
 
-    private static func write(_ image: NSImage, appearance: NSAppearance, to url: URL) {
+    private struct EncodingFailed: Error {}
+
+    private static func write(_ image: NSImage, appearance: NSAppearance, to url: URL) throws {
         let scale = 2.0
         let size = NSSize(width: image.size.width + 16, height: image.size.height + 12)
         let rep = NSBitmapImageRep(
@@ -42,6 +54,7 @@ enum DebugRender {
             image.draw(in: NSRect(x: 8, y: 6, width: image.size.width, height: image.size.height))
         }
         NSGraphicsContext.restoreGraphicsState()
-        try? rep.representation(using: .png, properties: [:])?.write(to: url)
+        guard let png = rep.representation(using: .png, properties: [:]) else { throw EncodingFailed() }
+        try png.write(to: url)
     }
 }

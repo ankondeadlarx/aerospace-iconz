@@ -12,6 +12,8 @@ final class StatusController: NSObject {
     /// What's currently drawn; used to map clicks to workspaces.
     private var layout: PillLayout
     private var appearanceObservation: NSKeyValueObservation?
+    private var iconRetry: Task<Void, Never>?
+    private var iconRetriesLeft = 0
 
     var onSelectWorkspace: ((WorkspaceName) -> Void)?
     var onRefresh: (() -> Void)?
@@ -39,12 +41,23 @@ final class StatusController: NSObject {
 
     func render(_ newState: BarState) {
         state = newState
+        iconRetriesLeft = config.iconRetryLimit
         redraw()
     }
 
     private func redraw() {
         layout = renderer.layout(for: state)
-        statusItem.button?.image = renderer.image(for: layout)
+        let rendered = renderer.image(for: layout)
+        statusItem.button?.image = rendered.image
+
+        // A launching app can have a window before its icon; draw again once it may have one.
+        iconRetry?.cancel()
+        guard rendered.isMissingIcons, iconRetriesLeft > 0 else { return }
+        iconRetriesLeft -= 1
+        iconRetry = Task { [weak self, delay = config.iconRetryDelay] in
+            try? await Task.sleep(for: delay)
+            if !Task.isCancelled { self?.redraw() }
+        }
     }
 
     @objc private func clicked(_ sender: NSStatusBarButton) {
@@ -53,10 +66,8 @@ final class StatusController: NSObject {
             showMenu(from: sender)
             return
         }
-        // The image is centered in the button; convert the click into image coordinates.
         let point = sender.convert(event.locationInWindow, from: nil)
-        let imageOriginX = (sender.bounds.width - layout.totalWidth) / 2
-        if let workspace = layout.workspace(atX: point.x - imageOriginX) {
+        if let workspace = layout.workspace(atButtonX: point.x, buttonWidth: sender.bounds.width) {
             onSelectWorkspace?(workspace)
         }
     }
@@ -64,9 +75,10 @@ final class StatusController: NSObject {
     private func showMenu(from button: NSStatusBarButton) {
         let menu = NSMenu()
         menu.addItem(withTitle: "Refresh", action: #selector(refresh), keyEquivalent: "").target = self
-        let login = menu.addItem(withTitle: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+        let launchAtLogin = LaunchAtLoginItem(status: SMAppService.mainApp.status)
+        let login = menu.addItem(withTitle: launchAtLogin.title, action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         login.target = self
-        login.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        login.state = launchAtLogin.state
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit AeroSpaceIconz", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + config.menuVerticalOffset), in: button)
@@ -76,12 +88,14 @@ final class StatusController: NSObject {
 
     @objc private func toggleLaunchAtLogin() {
         do {
-            if SMAppService.mainApp.status == .enabled {
-                try SMAppService.mainApp.unregister()
-            } else {
-                try SMAppService.mainApp.register()
+            switch LaunchAtLoginItem(status: SMAppService.mainApp.status).action {
+            case .register: try SMAppService.mainApp.register()
+            case .unregister: try SMAppService.mainApp.unregister()
+            case .openSystemSettings: SMAppService.openSystemSettingsLoginItems()
             }
         } catch {
+            // An accessory app isn't active, so the alert would open behind other windows.
+            NSApp.activate()
             let alert = NSAlert(error: error)
             alert.messageText = "Couldn't change Launch at Login"
             alert.runModal()

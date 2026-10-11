@@ -54,4 +54,25 @@ import Testing
         #expect(CLIParsing.event(fromLine: "") == nil)
         #expect(CLIParsing.event(fromLine: "not json") == nil)
     }
+
+    @Test func lineSplitterJoinsALineSplitAcrossReads() {
+        var lines = LineSplitter()
+        #expect(lines.append(Data(#"{"a":"#.utf8)) == [])
+        #expect(lines.append(Data("1}\n{\"b\"".utf8)) == [#"{"a":1}"#])
+        #expect(lines.append(Data(":2}\n".utf8)) == [#"{"b":2}"#])
+    }
+
+    @Test func lineSplitterKeepsAMultibyteCharacterSplitAcrossReads() {
+        var lines = LineSplitter()
+        let bytes = Array("é\n".utf8)
+        #expect(lines.append(Data(bytes[..<1])) == [])
+        #expect(lines.append(Data(bytes[1...])) == ["é"])
+    }
+
+    @Test func lineSplitterFlushesAnUnterminatedLastLine() {
+        var lines = LineSplitter()
+        #expect(lines.append(Data("x\ny".utf8)) == ["x"])
+        #expect(lines.finish() == ["y"])
+        #expect(lines.finish() == [])
+    }
 }

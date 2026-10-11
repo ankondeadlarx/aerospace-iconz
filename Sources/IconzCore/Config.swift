@@ -16,12 +16,20 @@ public struct Config: Sendable {
     /// Opacity of the placeholder shown when AeroSpace can't be reached.
     public var unavailableAlpha: Double
 
+    /// While an app's icon isn't available yet (it's still launching), redraw this often,
+    /// up to `iconRetryLimit` times per state.
+    public var iconRetryDelay: Duration
+    public var iconRetryLimit: Int
+
     /// Gap between the status item and the top of its right-click menu.
     public var menuVerticalOffset: Double
 
     public var statusItemAutosaveName: String
     /// GUI apps don't inherit the shell PATH, so look in the usual Homebrew locations.
     public var aerospaceExecutableCandidates: [String]
+    /// A CLI call taking longer is killed and counts as AeroSpace being unreachable.
+    /// Normal calls take ~15 ms.
+    public var cliTimeout: Duration
 
     public static let standard = Config(
         layout: LayoutConfig(
@@ -45,9 +53,12 @@ public struct Config: Sendable {
         visibleStrokeWidth: 1,
         visibleStrokeAlpha: 0.35,
         unavailableAlpha: 0.4,
+        iconRetryDelay: .seconds(1),
+        iconRetryLimit: 5,
         menuVerticalOffset: 4,
         statusItemAutosaveName: "AeroSpaceIconz",
-        aerospaceExecutableCandidates: ["/opt/homebrew/bin/aerospace", "/usr/local/bin/aerospace"]
+        aerospaceExecutableCandidates: ["/opt/homebrew/bin/aerospace", "/usr/local/bin/aerospace"],
+        cliTimeout: .seconds(2)
     )
 }
 

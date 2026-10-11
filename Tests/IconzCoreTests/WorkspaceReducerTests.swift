@@ -25,6 +25,15 @@ private func appNames(_ groups: [WorkspaceGroup]) -> [String: [String]] {
         #expect(groups[1].workspace.isFocused)
     }
 
+    @Test func hidesEmptyWorkspaceVisibleOnAnotherMonitor() {
+        var reducer = WorkspaceReducer()
+        let groups = reducer.groups(for: Snapshot(
+            workspaces: [ws("1", focused: true), ws("2", visible: true)],
+            windows: [win(1, "Chrome", on: "1")]
+        ))
+        #expect(groups.map(\.workspace.name) == ["1"])
+    }
+
     @Test func keepsAeroSpaceWorkspaceOrder() {
         var reducer = WorkspaceReducer()
         let groups = reducer.groups(for: Snapshot(

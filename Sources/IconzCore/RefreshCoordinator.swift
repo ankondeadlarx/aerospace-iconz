@@ -1,3 +1,7 @@
+public enum PauseReason: Hashable, Sendable {
+    case displaysAsleep, screenLocked
+}
+
 public enum BarState: Equatable, Sendable {
     case unavailable
     case workspaces([WorkspaceGroup])
@@ -7,7 +11,8 @@ public enum BarState: Equatable, Sendable {
 ///
 /// - Every event (or `nudge()`) starts a burst: refresh now, then at each `burstDelays` offset.
 ///   A newer event restarts the burst.
-/// - A slow poll covers changes AeroSpace has no event for; it pauses while the screen sleeps.
+/// - A slow poll covers changes AeroSpace has no event for. It stops entirely while any
+///   `PauseReason` holds, and resuming refreshes at once.
 /// - Refreshes never overlap: a request during one in flight runs once more afterwards.
 @MainActor
 public final class RefreshCoordinator {
@@ -20,9 +25,11 @@ public final class RefreshCoordinator {
     private var lastState: BarState?
     private var isRefreshing = false
     private var refreshPending = false
-    private var isPaused = false
-    private var burstTask: Task<Void, Never>?
-    private var loops: [Task<Void, Never>] = []
+    private var pauseReasons: Set<PauseReason> = []
+    private(set) var burstTask: Task<Void, Never>?
+    // These hold the coordinator until `stop()` cancels them.
+    private var subscriptionTask: Task<Void, Never>?
+    private var pollTask: Task<Void, Never>?
 
     public init(
         client: any AeroSpaceClient, timing: Timing, clock: any MonotonicClock = SystemClock(),
@@ -35,16 +42,16 @@ public final class RefreshCoordinator {
     }
 
     public func start() {
-        loops = [
-            Task { [weak self] in await self?.subscriptionLoop() },
-            Task { [weak self] in await self?.pollLoop() },
-        ]
+        subscriptionTask = Task { await subscriptionLoop() }
+        if pauseReasons.isEmpty { startPolling() }
         nudge()
     }
 
     public func stop() {
-        loops.forEach { $0.cancel() }
-        loops = []
+        subscriptionTask?.cancel()
+        subscriptionTask = nil
+        pollTask?.cancel()
+        pollTask = nil
         burstTask?.cancel()
     }
 
@@ -54,15 +61,24 @@ public final class RefreshCoordinator {
         burstTask = Task { [weak self] in try? await self?.burst() }
     }
 
-    public func setPaused(_ paused: Bool) {
-        isPaused = paused
-        if !paused { nudge() }
+    /// Stops the poll while any reason holds. Events still refresh.
+    public func setPaused(_ paused: Bool, for reason: PauseReason) {
+        let wasPaused = !pauseReasons.isEmpty
+        if paused { pauseReasons.insert(reason) } else { pauseReasons.remove(reason) }
+        let isPaused = !pauseReasons.isEmpty
+        guard isPaused != wasPaused, subscriptionTask != nil else { return }
+        if isPaused {
+            pollTask?.cancel()
+            pollTask = nil
+        } else {
+            startPolling()
+            nudge()
+        }
     }
 
     public func focus(workspace: WorkspaceName) async {
         try? await client.focus(workspace: workspace)
         nudge()
-        await refresh()
     }
 
     func burst() async throws {
@@ -87,6 +103,8 @@ public final class RefreshCoordinator {
             let state: BarState
             do {
                 state = .workspaces(reducer.groups(for: try await client.snapshot()))
+            } catch is CancellationError {
+                continue
             } catch {
                 state = .unavailable
             }
@@ -111,10 +129,14 @@ public final class RefreshCoordinator {
         }
     }
 
+    private func startPolling() {
+        pollTask = Task { await pollLoop() }
+    }
+
     private func pollLoop() async {
-        while !Task.isCancelled {
-            try? await clock.sleep(for: timing.pollInterval)
-            if !isPaused { await refresh() }
+        while true {
+            do { try await clock.sleep(for: timing.pollInterval) } catch { return }
+            await refresh()
         }
     }
 }

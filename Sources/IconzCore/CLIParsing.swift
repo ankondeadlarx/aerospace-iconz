@@ -64,3 +64,28 @@ public enum CLIParsing {
         enum CodingKeys: String, CodingKey { case event = "_event" }
     }
 }
+
+/// Splits the `subscribe` byte stream into lines. Reads can end mid-line, or mid-character.
+public struct LineSplitter: Sendable {
+    private var buffer = Data()
+
+    public init() {}
+
+    /// The lines completed by `data`.
+    public mutating func append(_ data: Data) -> [String] {
+        buffer.append(data)
+        var lines: [String] = []
+        while let newline = buffer.firstIndex(of: UInt8(ascii: "\n")) {
+            lines.append(String(decoding: buffer[buffer.startIndex..<newline], as: UTF8.self))
+            buffer.removeSubrange(buffer.startIndex...newline)
+        }
+        return lines
+    }
+
+    /// At end of stream: the last line, if it had no trailing newline.
+    public mutating func finish() -> [String] {
+        guard !buffer.isEmpty else { return [] }
+        defer { buffer = Data() }
+        return [String(decoding: buffer, as: UTF8.self)]
+    }
+}

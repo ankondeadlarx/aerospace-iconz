@@ -92,6 +92,13 @@ private func visibleGroup(_ name: String) -> WorkspaceGroup {
         #expect(layout.workspace(atX: 24) == "2")
     }
 
+    @Test func clickInTheButtonAllowsForTheCenteredImage() {
+        // Pills span 0–46, so centered in a 66 pt button they sit at 10–56 and the gap splits at 33.
+        let layout = PillLayout(groups: [group("1", apps: 0), group("2", apps: 0)], config: config(), measure: measure)
+        #expect(layout.workspace(atButtonX: 32, buttonWidth: 66) == "1")
+        #expect(layout.workspace(atButtonX: 34, buttonWidth: 66) == "2")
+    }
+
     @Test func clickOutsideEverythingMapsToEdgePills() {
         let layout = PillLayout(groups: [group("1", apps: 0), group("2", apps: 0)], config: config(), measure: measure)
         #expect(layout.workspace(atX: -3) == "1")

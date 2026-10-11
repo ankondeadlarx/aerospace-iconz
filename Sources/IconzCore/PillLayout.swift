@@ -82,7 +82,9 @@ public struct PillLayout: Equatable, Sendable {
         case .workspaces(let groups):
             self.init(groups: groups, config: config, measure: measure)
         case .unavailable:
-            let placeholder = PillSource(label: config.placeholderLabel, workspace: nil, emphasis: .outline, apps: [])
+            let placeholder = PillSource(
+                label: config.placeholderLabel, workspace: nil, isFocused: false, emphasis: .outline, apps: []
+            )
             self.init(sources: [placeholder], config: config, measure: measure)
             isDimmed = true
         }
@@ -94,6 +96,7 @@ public struct PillLayout: Equatable, Sendable {
             return PillSource(
                 label: workspace.name.rawValue,
                 workspace: workspace.name,
+                isFocused: workspace.isFocused,
                 emphasis: workspace.isFocused ? .fill : workspace.isVisible ? .outline : .none,
                 apps: group.apps
             )
@@ -110,30 +113,30 @@ public struct PillLayout: Equatable, Sendable {
         }
     }
 
-    private init(sources: [PillSource], focusedCap: Int, cap: Int, metrics m: PillMetrics, measure: (String) -> Double) {
+    private init(sources: [PillSource], focusedCap: Int, cap: Int, metrics: PillMetrics, measure: (String) -> Double) {
         var x = 0.0
         for source in sources {
-            let limit = source.emphasis == .fill ? focusedCap : cap
+            let limit = source.isFocused ? focusedCap : cap
             let icons = Array(source.apps.prefix(limit))
             let pill = Pill(label: source.label, workspace: source.workspace, emphasis: source.emphasis,
                             icons: icons, overflow: source.apps.count - icons.count)
 
-            if !pills.isEmpty { x += m.pillSpacing }
-            let labelX = x + m.horizontalPadding
+            if !pills.isEmpty { x += metrics.pillSpacing }
+            let labelX = x + metrics.horizontalPadding
             var cursor = labelX + measure(pill.label)
             var iconXs: [Double] = []
             for index in icons.indices {
-                cursor += index == 0 ? m.labelIconGap : m.iconGap
+                cursor += index == 0 ? metrics.labelIconGap : metrics.iconGap
                 iconXs.append(cursor)
-                cursor += m.iconSize
+                cursor += metrics.iconSize
             }
             var overflowX: Double?
             if let overflowLabel = pill.overflowLabel {
-                cursor += m.iconGap
+                cursor += metrics.iconGap
                 overflowX = cursor
                 cursor += measure(overflowLabel)
             }
-            let width = cursor + m.horizontalPadding - x
+            let width = cursor + metrics.horizontalPadding - x
 
             pills.append(pill)
             frames.append(PillFrame(x: x, width: width, labelX: labelX, iconXs: iconXs, overflowX: overflowX))
@@ -152,12 +155,20 @@ public struct PillLayout: Equatable, Sendable {
         }
         return pills.last?.workspace
     }
+
+    /// The workspace a click at `x` in the status item's button targets. The button can be
+    /// wider than the image, which it draws centered.
+    public func workspace(atButtonX x: Double, buttonWidth: Double) -> WorkspaceName? {
+        workspace(atX: x - (buttonWidth - totalWidth) / 2)
+    }
 }
 
 /// What a pill is built from: a workspace group, or the placeholder.
 private struct PillSource {
     var label: String
     var workspace: WorkspaceName?
+    /// Keeps the full icon cap when the bar is too wide.
+    var isFocused: Bool
     var emphasis: PillEmphasis
     var apps: [AppRef]
 }

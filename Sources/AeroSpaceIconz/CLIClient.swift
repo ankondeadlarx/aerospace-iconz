@@ -2,15 +2,18 @@ import Foundation
 import IconzCore
 import Synchronization
 
-enum CLIError: Error {
+enum CLIError: Error, Equatable {
     case exitStatus(Int32)
+    case timedOut
 }
 
 /// `AeroSpaceClient` backed by the `aerospace` CLI.
 struct CLIClient: AeroSpaceClient {
     let executable: URL
+    let timeout: Duration
 
-    init(candidates: [String]) {
+    init(candidates: [String], timeout: Duration) {
+        self.timeout = timeout
         let path = candidates.first { FileManager.default.isExecutableFile(atPath: $0) } ?? candidates[0]
         executable = URL(fileURLWithPath: path)
     }
@@ -35,17 +38,21 @@ struct CLIClient: AeroSpaceClient {
             // Finish only once every line has been delivered (pipe EOF) and the process is
             // gone and untracked (termination). Either can happen first.
             let finished = Countdown(2) { continuation.finish() }
-            let lines = LineSplitter()
+            let lines = Mutex(LineSplitter())
+            let deliver: @Sendable ([String]) -> Void = { lines in
+                for line in lines {
+                    if let event = CLIParsing.event(fromLine: line) { continuation.yield(event) }
+                }
+            }
             output.fileHandleForReading.readabilityHandler = { handle in
                 let data = handle.availableData
                 guard !data.isEmpty else {
                     handle.readabilityHandler = nil
+                    deliver(lines.withLock { $0.finish() })
                     finished.tick()
                     return
                 }
-                for line in lines.append(data) {
-                    if let event = CLIParsing.event(fromLine: line) { continuation.yield(event) }
-                }
+                deliver(lines.withLock { $0.append(data) })
             }
             let box = ProcessBox(process)
             process.terminationHandler = { _ in
@@ -82,6 +89,7 @@ struct CLIClient: AeroSpaceClient {
     private func run(_ arguments: [String]) async throws -> Data {
         let (process, output) = makeProcess(arguments)
         let box = ProcessBox(process)
+        let timeout = timeout.timeInterval
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let process = box.process
@@ -94,10 +102,18 @@ struct CLIClient: AeroSpaceClient {
                     continuation.resume(throwing: error)
                     return
                 }
+                // A stuck call would block the read below, and with it every later refresh.
+                let watchdog = DispatchWorkItem {
+                    if box.process.isRunning { kill(box.process.processIdentifier, SIGKILL) }
+                }
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
                 // Read before waiting so a full pipe can't deadlock the child.
                 let data = output.fileHandleForReading.readDataToEndOfFile()
                 exited.wait()
-                if process.terminationStatus == 0 {
+                watchdog.cancel()
+                if process.terminationReason == .uncaughtSignal && process.terminationStatus == SIGKILL {
+                    continuation.resume(throwing: CLIError.timedOut)
+                } else if process.terminationStatus == 0 {
                     continuation.resume(returning: data)
                 } else {
                     continuation.resume(throwing: CLIError.exitStatus(process.terminationStatus))
@@ -107,19 +123,9 @@ struct CLIClient: AeroSpaceClient {
     }
 }
 
-/// Splits a byte stream into newline-terminated lines. Only touched from the pipe's
-/// readability handler, which runs serially.
-private final class LineSplitter: @unchecked Sendable {
-    private var buffer = Data()
-
-    func append(_ data: Data) -> [String] {
-        buffer.append(data)
-        var lines: [String] = []
-        while let newline = buffer.firstIndex(of: UInt8(ascii: "\n")) {
-            lines.append(String(decoding: buffer[buffer.startIndex..<newline], as: UTF8.self))
-            buffer.removeSubrange(buffer.startIndex...newline)
-        }
-        return lines
+private extension Duration {
+    var timeInterval: TimeInterval {
+        Double(components.seconds) + Double(components.attoseconds) * 1e-18
     }
 }
 
@@ -139,31 +145,5 @@ private final class Countdown: Sendable {
             return value == 0
         }
         if isLast { action() }
-    }
-}
-
-final class ProcessBox: @unchecked Sendable {
-    let process: Process
-    init(_ process: Process) { self.process = process }
-}
-
-/// Live `aerospace subscribe` children, so they can be killed synchronously when the app
-/// exits. Otherwise they outlive us until their next write hits the closed pipe.
-enum Subscriptions {
-    private static let boxes = Mutex<[ObjectIdentifier: ProcessBox]>([:])
-
-    static func add(_ box: ProcessBox) {
-        boxes.withLock { $0[ObjectIdentifier(box)] = box }
-    }
-
-    static func remove(_ box: ProcessBox) {
-        _ = boxes.withLock { $0.removeValue(forKey: ObjectIdentifier(box)) }
-    }
-
-    static var liveCount: Int { boxes.withLock { $0.count } }
-
-    static func terminateAll() {
-        let live = boxes.withLock { Array($0.values) }
-        for box in live where box.process.isRunning { box.process.terminate() }
     }
 }

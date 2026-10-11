@@ -38,19 +38,27 @@ Everything goes through the public `aerospace` CLI.
 
 - **Events:** one long-lived child process `aerospace subscribe --all` emitting JSON
   lines (`focus-changed`, `focused-workspace-changed`, `focused-monitor-changed`,
-  `window-detected`, `binding-triggered`, `mode-changed`). Restarted with backoff if it exits.
-- **State:** on any event, full re-read (two CLI calls in parallel, ~18 ms each):
+  `window-detected`, `binding-triggered`, `mode-changed`). Restarted if it exits, after
+  1 / 2 / 5 / 10 s for consecutive failures; the first event after a restart resets the backoff.
+- **State:** on any event, full re-read (two CLI calls in parallel, ~15–18 ms each):
   - `aerospace list-windows --all --json --format '%{window-id} %{app-bundle-id} %{app-name} %{app-pid} %{workspace}'`
     (`--format` is required: plain `--json` omits bundle id and workspace)
   - `aerospace list-workspaces --all --json --format '%{workspace} %{workspace-is-focused} %{workspace-is-visible}'`
   - Redraw only when the derived model differs.
+  - Re-reads never overlap: one requested while another is in flight runs once, afterwards.
+  - Every CLI call is killed after 2 s (`cliTimeout`), so a stuck `aerospace` can't stall
+    the bar; the killed call counts as a failed read.
 - **Gap coverage** (AeroSpace has no window-closed / window-moved events):
   - NSWorkspace `didTerminateApplication`.
   - Burst re-check at +100 ms and +500 ms after every event, timed from the event itself
     (covers windows that are still listed when their event fires). A newer event restarts the burst.
-  - Idle poll every 3 s, paused while displays sleep / screen is locked.
+  - Idle poll every 3 s. Stopped (no timer at all) while the displays sleep or the screen is
+    locked (`com.apple.screenIsLocked` / `screenIsUnlocked` distributed notifications), and
+    until both clear; resuming re-reads at once. Events still re-read while paused.
 - **AeroSpace not running:** a single dimmed, outlined placeholder pill (`–`); keep retrying.
   `subscribe` sends the current state on connect, so a reconnect refreshes immediately.
+  Any failed read (CLI missing, non-zero exit, timeout, unparseable output) shows the
+  placeholder; the next good read clears it. A read cancelled mid-burst changes nothing.
 - **Switching:** `aerospace workspace <name>`.
 
 ## What's shown
@@ -60,28 +68,41 @@ Everything goes through the public `aerospace` CLI.
 - Pill = workspace name label + app icons.
   - Deduped: one icon per app (bundle id).
   - Icon order = first time that app appeared on that workspace (stable across refreshes).
+    Apps new in the same read are ordered by their oldest window id (a proxy for creation
+    order); an app that leaves and comes back goes to the end.
   - Max 4 icons per pill, then `+N`.
   - Every window in `list-windows` counts (floating, minimized, hidden).
 - **Width budget:** if the total width exceeds `maxTotalWidth` (400 pt), lower the
   per-pill icon cap for non-focused pills 4 → 3 → 2 → 1 until it fits. The focused pill keeps 4.
-- **Multi-monitor:** one item, all workspaces. Focused = fill; visible on another monitor = outline.
+- **Multi-monitor:** one item, all workspaces. Focused = fill; a non-empty workspace visible
+  on another monitor = outline. An empty workspace on another monitor is hidden like any
+  other empty one: the only empty pill ever shown is the focused workspace.
 
 ## Visual style
 
-- Icons 16 pt, 2 pt gap; pills 20 pt tall, 5 pt corner radius, 6 pt between pills.
-- Label: system font 11 pt, medium, monospaced digits.
+Exact values live in `Config.swift`.
+
+- Icons 16 pt, 2 pt gap, 4 pt between label and first icon; pills 20 pt tall, 5 pt
+  horizontal padding, 5 pt corner radius, 6 pt between pills.
+- Label: system font 11 pt, medium, monospaced digits. `+N` at 55 % of the label color.
 - Focused pill: fill with menu bar label color at ~20 % alpha. Visible-not-focused:
-  1 pt stroke. Others: no fill. Icons always full color.
-- Rendered as one `NSImage` (drawing-handler based, so it re-renders on appearance
-  change) on the status item button. `PillLayout` computes every position (pill, label,
-  each icon, `+N`); the renderer only paints at those positions, and clicks are mapped to
-  pills with the same layout, so drawing and hit-testing can't drift apart.
-- Icons from `NSRunningApplication` (by pid), cached by bundle id, generic app icon fallback.
+  1 pt stroke at 35 %. Others: no fill. Icons always full color. Placeholder: whole image at 40 %.
+- Rendered as one `NSImage` (drawing-handler based, so system colors resolve at draw time)
+  on the status item button, redrawn when the button's `effectiveAppearance` changes.
+  `PillLayout` computes every position (pill, label, each icon, `+N`); the renderer only
+  paints at those positions, and clicks are mapped to pills with the same layout (including
+  the image's centering in the button), so drawing and hit-testing can't drift apart.
+- Icons from `NSRunningApplication` (by pid), else the installed app (by bundle id),
+  cached by app key. An icon not available yet (app still launching) is drawn as the
+  generic app icon and looked up again: redraw every 1 s, up to 5 times per state.
 
 ## Interaction
 
-- Left-click pill → switch workspace.
-- Right-click → menu: Refresh, Launch at Login (`SMAppService.mainApp`), Quit.
+- Left-click pill → switch workspace. A click in the gap between pills goes to the nearer
+  one; past either end, to the end pill.
+- Right-click or Ctrl-click → menu: Refresh, Launch at Login (`SMAppService.mainApp`), Quit.
+  - Launch at Login is checked when enabled. When macOS needs the user to allow it, it shows
+    mixed with "(Allow in System Settings…)" and opens Login Items. A failed toggle shows an alert.
 
 ## Engineering
 
@@ -94,21 +115,25 @@ Everything goes through the public `aerospace` CLI.
   - `IconzCore` (pure, no AppKit), built test-first:
     - `Snapshot`: what AeroSpace reports (`WorkspaceInfo`, `WindowInfo`), plus the
       `WorkspaceName` and `AppKey` (bundle id, else app name) types.
-    - `CLIParsing`: CLI arguments and JSON decoding.
+    - `CLIParsing`: CLI arguments and JSON decoding; `LineSplitter` for the `subscribe` stream.
     - `WorkspaceReducer`: snapshot → workspace groups (filtering, dedupe, stable icon order).
     - `PillLayout`: groups or unavailable state → pills with every position (`+N`, width-fit,
       hit-testing). The placeholder pill has no workspace, so clicks on it do nothing.
-    - `RefreshCoordinator`: when to re-read (events, bursts, poll, pause, reconnect backoff); publishes `BarState` on change.
+    - `RefreshCoordinator`: when to re-read (events, bursts, poll, pause reasons, reconnect
+      backoff); publishes `BarState` on change.
     - `AeroSpaceClient` and `MonotonicClock` seams, `Config`.
-  - `AeroSpaceIconz` (executable, AppKit, thin glue): `CLIClient` (runs the CLI,
-    tracks `subscribe` children in `Subscriptions`), `IconCache`, `PillRenderer`,
-    `StatusController` (status item, clicks, menu), `AppDelegate` (wiring, sleep/lock/
-    app-quit notifications, SIGTERM), `DebugRender`.
+  - `AeroSpaceIconz` (executable, AppKit, thin glue): `CLIClient` (runs the CLI with a
+    timeout), `Subscriptions` (live `subscribe` children), `IconCache`, `PillRenderer`,
+    `StatusController` (status item, clicks, menu), `LaunchAtLogin` (menu item per
+    `SMAppService` status), `AppDelegate` (wiring, sleep/lock/app-quit notifications,
+    SIGTERM), `DebugRender`.
 - Seam: `AeroSpaceClient` (`snapshot()`, `events()`, `focus(workspace:)`). The real
   implementation runs the CLI; tests use a fake. Time goes through `MonotonicClock`
   (`SystemClock` in the app, a manually advanced fake in tests).
-- Debug: `AeroSpaceIconz --render-png <dir>` renders the current state in light and dark
-  appearance to PNGs and exits, for checking the drawing without the menu bar.
+- Debug: `AeroSpaceIconz --render-png <dir>` reads the live AeroSpace, renders the current
+  state in light and dark appearance to PNGs in `<dir>` (created if needed), prints their
+  paths and exits; it says so when AeroSpace wasn't reachable. For checking the drawing
+  without the menu bar.
 - All tunables live in one `Config` struct (no TOML in v1).
 
 ## aerospace.toml

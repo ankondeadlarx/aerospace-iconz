@@ -20,10 +20,21 @@ struct PillRenderer {
         PillLayout(state: state, config: config.layout, measure: measure)
     }
 
-    func image(for layout: PillLayout) -> NSImage {
-        let m = config.layout.metrics
-        let size = NSSize(width: max(layout.totalWidth, 1), height: m.pillHeight)
-        let images = layout.pills.map { $0.icons.map(icons.icon(for:)) }
+    struct Rendered {
+        var image: NSImage
+        /// Some app's icon wasn't available yet, so the generic one was drawn instead.
+        var isMissingIcons: Bool
+    }
+
+    func image(for layout: PillLayout) -> Rendered {
+        let found = layout.pills.map { $0.icons.map { icons.icon(for: $0) } }
+        let images = found.map { $0.map { $0 ?? icons.fallback } }
+        return Rendered(image: draw(layout, icons: images), isMissingIcons: found.joined().contains(nil))
+    }
+
+    private func draw(_ layout: PillLayout, icons images: [[NSImage]]) -> NSImage {
+        let metrics = config.layout.metrics
+        let size = NSSize(width: max(layout.totalWidth, 1), height: metrics.pillHeight)
         let font = font
         let config = config
 
@@ -33,9 +44,11 @@ struct PillRenderer {
             let label = NSColor.labelColor
             for (index, pill) in layout.pills.enumerated() {
                 let frame = layout.frames[index]
-                let rect = NSRect(x: frame.x, y: 0, width: frame.width, height: m.pillHeight)
-                let path = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5),
-                                        xRadius: m.cornerRadius, yRadius: m.cornerRadius)
+                let rect = NSRect(x: frame.x, y: 0, width: frame.width, height: metrics.pillHeight)
+                // Inset by half the stroke so an outline stays inside the image.
+                let inset = config.visibleStrokeWidth / 2
+                let path = NSBezierPath(roundedRect: rect.insetBy(dx: inset, dy: inset),
+                                        xRadius: metrics.cornerRadius, yRadius: metrics.cornerRadius)
                 switch pill.emphasis {
                 case .fill:
                     label.withAlphaComponent(config.focusedFillAlpha).setFill()
@@ -48,13 +61,13 @@ struct PillRenderer {
                     break
                 }
 
-                drawText(pill.label, at: frame.labelX, height: m.pillHeight, font: font, color: label)
+                drawText(pill.label, at: frame.labelX, height: metrics.pillHeight, font: font, color: label)
                 for (icon, x) in zip(images[index], frame.iconXs) {
-                    let y = (m.pillHeight - m.iconSize) / 2
-                    icon.draw(in: NSRect(x: x, y: y, width: m.iconSize, height: m.iconSize))
+                    let y = (metrics.pillHeight - metrics.iconSize) / 2
+                    icon.draw(in: NSRect(x: x, y: y, width: metrics.iconSize, height: metrics.iconSize))
                 }
                 if let overflow = pill.overflowLabel, let x = frame.overflowX {
-                    drawText(overflow, at: x, height: m.pillHeight, font: font,
+                    drawText(overflow, at: x, height: metrics.pillHeight, font: font,
                              color: label.withAlphaComponent(config.overflowLabelAlpha))
                 }
             }
