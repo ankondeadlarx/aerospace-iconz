@@ -1,4 +1,7 @@
-# AeroSpaceIconz — design
+# AeroSpaceIconz — spec & design
+
+The source of truth for what the app does and why. Update it in the same change when a
+decision changes.
 
 A native macOS menu bar status item that shows, for each AeroSpace workspace, the
 icons of the apps with windows on it. Click a workspace to switch to it.
@@ -36,7 +39,7 @@ Everything goes through the public `aerospace` CLI.
 - **Events:** one long-lived child process `aerospace subscribe --all` emitting JSON
   lines (`focus-changed`, `focused-workspace-changed`, `focused-monitor-changed`,
   `window-detected`, `binding-triggered`, `mode-changed`). Restarted with backoff if it exits.
-- **State:** on any event, full re-read (~14 ms):
+- **State:** on any event, full re-read (two CLI calls in parallel, ~18 ms each):
   - `aerospace list-windows --all --json --format '%{window-id} %{app-bundle-id} %{app-name} %{app-pid} %{workspace}'`
     (`--format` is required: plain `--json` omits bundle id and workspace)
   - `aerospace list-workspaces --all --json --format '%{workspace} %{workspace-is-focused} %{workspace-is-visible}'`
@@ -88,11 +91,16 @@ Everything goes through the public `aerospace` CLI.
   `IconzCoreTests` covers the core; `AeroSpaceIconzTests` covers app-target glue
   (e.g. subscription process tracking).
 - Modules:
-  - `IconzCore` (pure, no AppKit): snapshot types, CLI output parsing, the
-    snapshot → pills reducer (filtering, dedupe, stable icon order, `+N`, width-fit),
-    and the `AeroSpaceClient` protocol. Built test-first.
-  - `AeroSpaceIconz` (executable, AppKit): CLI-backed client, event pump / scheduler,
-    icon cache, renderer, status item, menu.
+  - `IconzCore` (pure, no AppKit), built test-first:
+    - `CLIParsing`: CLI arguments and JSON decoding.
+    - `WorkspaceReducer`: snapshot → workspace groups (filtering, dedupe, stable icon order).
+    - `PillLayout`: groups or unavailable state → pills with every position (`+N`, width-fit, hit-testing).
+    - `RefreshCoordinator`: when to re-read (events, bursts, poll, pause, reconnect backoff); publishes `BarState` on change.
+    - `AeroSpaceClient` and `MonotonicClock` seams, `Config`.
+  - `AeroSpaceIconz` (executable, AppKit, thin glue): `CLIClient` (runs the CLI,
+    tracks `subscribe` children in `Subscriptions`), `IconCache`, `PillRenderer`,
+    `StatusController` (status item, clicks, menu), `AppDelegate` (wiring, sleep/lock/
+    app-quit notifications, SIGTERM), `DebugRender`.
 - Seam: `AeroSpaceClient` (`snapshot()`, `events()`, `focus(workspace:)`). The real
   implementation runs the CLI; tests use a fake. Time goes through `MonotonicClock`
   (`SystemClock` in the app, a manually advanced fake in tests).
@@ -100,14 +108,15 @@ Everything goes through the public `aerospace` CLI.
   appearance to PNGs and exits, for checking the drawing without the menu bar.
 - All tunables live in one `Config` struct (no TOML in v1).
 
-## aerospace.toml changes
+## aerospace.toml
 
-No additions. Cleanup of dead `borders` / `sketchybar` hooks:
+The app needs nothing in `~/.config/aerospace/aerospace.toml`. Changes made alongside it
+(original backed up at `aerospace.toml.before-iconz`):
 
-```toml
-after-startup-command = []
-# exec-on-workspace-change block removed
-```
+- Dead `borders` / `sketchybar` hooks removed: `after-startup-command = []`, no
+  `exec-on-workspace-change`.
+- `on-focus-changed = 'move-mouse window-lazy-center'` removed at the user's request: on
+  workspaces holding only floating windows it threw the cursor to a screen corner.
 
 ## Verified during the build (AeroSpace 0.21.3-Beta)
 
@@ -120,6 +129,19 @@ after-startup-command = []
 - `aerospace subscribe` children outlive a killed app until their next write, so the app
   terminates them explicitly on Quit and SIGTERM.
 
+## Decided against
+
+- Normalizing app icons to one visual size. Some icons fill more of their box than
+  others (Obsidian is edge to edge; VS Code, Raycast, Ice are slightly small); the user
+  chose to keep icons exactly as macOS provides them.
+
 ## Out of scope (v1)
 
 Click an icon to focus that app's window, hover tooltips, TOML config, per-monitor grouping.
+
+## Deferred cleanups (from code review, no behaviour change)
+
+- `name` / `isFocused` / `isVisible` are copied by hand across `WorkspaceInfo` → `WorkspaceGroup`.
+- Workspace names and app keys are bare `String`s.
+- `CLIClient.events()` and `run(_:)` repeat the same Process/Pipe setup.
+- `Subscriptions` uses `NSLock` + `nonisolated(unsafe)`; `Mutex` (Synchronization) would do.
