@@ -30,20 +30,22 @@ import Testing
     @Test func parsesTitledWindows() throws {
         let json = """
         [{ "app-bundle-id" : "com.mitchellh.ghostty", "app-name" : "Ghostty", "app-pid" : 25368,
-           "window-id" : 24106, "window-title" : "claude rc" },
-         { "app-bundle-id" : "", "app-name" : "Thing", "app-pid" : 1, "window-id" : 2, "window-title" : "" }]
+           "window-id" : 24106, "window-title" : "claude rc", "workspace" : "1" },
+         { "app-bundle-id" : "", "app-name" : "Thing", "app-pid" : 1, "window-id" : 2, "window-title" : "",
+           "workspace" : "1" }]
         """
         let windows = try CLIParsing.titledWindows(from: Data(json.utf8))
         #expect(windows == [
-            TitledWindow(id: 24106, appBundleId: "com.mitchellh.ghostty", appName: "Ghostty", appPid: 25368, title: "claude rc"),
-            TitledWindow(id: 2, appBundleId: nil, appName: "Thing", appPid: 1, title: ""),
+            TitledWindow(WindowInfo(id: 24106, appBundleId: "com.mitchellh.ghostty", appName: "Ghostty", appPid: 25368,
+                                    workspace: "1"), title: "claude rc"),
+            TitledWindow(WindowInfo(id: 2, appBundleId: nil, appName: "Thing", appPid: 1, workspace: "1"), title: ""),
         ])
     }
 
     @Test func titledWindowsAreListedForOneWorkspace() {
         #expect(CLIParsing.listTitledWindowsArguments(on: "M") == [
             "list-windows", "--workspace", "M", "--json",
-            "--format", "%{window-id} %{app-bundle-id} %{app-name} %{app-pid} %{window-title}",
+            "--format", "%{window-id} %{app-bundle-id} %{app-name} %{app-pid} %{workspace} %{window-title}",
         ])
     }
 

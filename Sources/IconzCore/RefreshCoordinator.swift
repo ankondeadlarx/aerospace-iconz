@@ -27,6 +27,8 @@ public final class RefreshCoordinator {
     private let timing: Timing
     private let clock: any MonotonicClock
     private let publish: @MainActor (BarState) -> Void
+    /// Window menu titles longer than this are cut in the middle.
+    private let maxTitleLength: Int
 
     private var reducer = WorkspaceReducer()
     /// From the last good read; tells an icon click which windows its app has. Not part of
@@ -39,8 +41,6 @@ public final class RefreshCoordinator {
     private var isRefreshing = false
     private var refreshPending = false
     private var pauseReasons: Set<PauseReason> = []
-    /// A window menu is being read; further menu requests are ignored until it's done.
-    private var isReadingWindowMenu = false
     private(set) var burstTask: Task<Void, Never>?
     // These hold the coordinator until `stop()` cancels them.
     private var subscriptionTask: Task<Void, Never>?
@@ -48,11 +48,13 @@ public final class RefreshCoordinator {
 
     public init(
         client: any AeroSpaceClient, timing: Timing, clock: any MonotonicClock = SystemClock(),
+        maxTitleLength: Int = Config.standard.windowMenuTitleLength,
         publish: @escaping @MainActor (BarState) -> Void
     ) {
         self.client = client
         self.timing = timing
         self.clock = clock
+        self.maxTitleLength = maxTitleLength
         self.publish = publish
     }
 
@@ -91,12 +93,11 @@ public final class RefreshCoordinator {
         }
     }
 
-    /// A left-click on the bar.
-    public func select(_ target: ClickTarget) async {
-        switch target {
+    /// A left-click on a pill's label or icon.
+    public func select(_ selection: Selection) async {
+        switch selection {
         case .workspace(let name): await focus(workspace: name)
         case .app(let app, let workspace): await focus(app: app, on: workspace)
-        case .windowMenu: break  // The status item opens the menu itself.
         }
     }
 
@@ -129,13 +130,8 @@ public final class RefreshCoordinator {
 
     /// The window menu for `workspace`, read now and never kept: its windows with titles in the
     /// pill's icon order, the focused one marked. Unreadable if the windows can't be read within
-    /// `windowMenuTimeout`; an unreadable focus only loses the mark. `nil` while another menu
-    /// is still being read, so repeated clicks open one menu.
-    public func windowMenu(for workspace: WorkspaceName, maxTitleLength: Int) async -> WindowMenu? {
-        guard !isReadingWindowMenu else { return nil }
-        isReadingWindowMenu = true
-        defer { isReadingWindowMenu = false }
-
+    /// `windowMenuTimeout`; an unreadable focus only loses the mark.
+    public func windowMenu(for workspace: WorkspaceName) async -> WindowMenu {
         let deadline = clock.now() + timing.windowMenuTimeout
         let client = client
         async let focused = result(by: deadline) { try await client.focusedWindowId() }
@@ -147,9 +143,8 @@ public final class RefreshCoordinator {
         if case .workspaces(let groups, _) = lastState {
             iconOrder = groups.first { $0.workspace.name == workspace }?.apps.map(\.key) ?? []
         }
-        let focusedId = try? await focused.get()
         return WindowMenu(workspace: workspace, windows: windows, iconOrder: iconOrder,
-                          focusedWindowId: focusedId ?? nil, maxTitleLength: maxTitleLength)
+                          focusedWindowId: try? await focused.get(), maxTitleLength: maxTitleLength)
     }
 
     private struct TimedOut: Error {}

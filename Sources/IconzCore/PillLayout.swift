@@ -66,11 +66,16 @@ public struct Pill: Equatable, Sendable {
     public var overflowLabel: String? { overflow > 0 ? "+\(overflow)" : nil }
 }
 
-/// What a click on the bar acts on.
-public enum ClickTarget: Equatable, Sendable {
+/// What a click on a pill's label or icon switches to.
+public enum Selection: Equatable, Sendable {
     case workspace(WorkspaceName)
     /// An app's icon in that workspace's pill.
     case app(AppKey, on: WorkspaceName)
+}
+
+/// What a click on the bar acts on.
+public enum ClickTarget: Equatable, Sendable {
+    case select(Selection)
     /// A pill's `+N`: opens that workspace's window menu.
     case windowMenu(WorkspaceName)
 }
@@ -83,6 +88,7 @@ public struct PillFrame: Equatable, Sendable {
     public var labelX: Double
     public var iconXs: [Double]
     public var overflowX: Double?
+    public var overflowWidth: Double?
 }
 
 /// Where each pill goes. `measure` returns the width of a label string in the label font,
@@ -154,16 +160,19 @@ public struct PillLayout: Equatable, Sendable {
                 iconXs.append(cursor)
                 cursor += metrics.iconSize
             }
-            var overflowX: Double?
+            var overflowX: Double?, overflowWidth: Double?
             if let overflowLabel = pill.overflowLabel {
                 cursor += metrics.iconGap
-                overflowX = cursor
-                cursor += measure(overflowLabel)
+                let width = measure(overflowLabel)
+                (overflowX, overflowWidth) = (cursor, width)
+                cursor += width
             }
             let width = cursor + metrics.horizontalPadding - x
 
             pills.append(pill)
-            frames.append(PillFrame(x: x, width: width, labelX: labelX, iconXs: iconXs, overflowX: overflowX))
+            frames.append(PillFrame(
+                x: x, width: width, labelX: labelX, iconXs: iconXs, overflowX: overflowX, overflowWidth: overflowWidth
+            ))
             x += width
         }
         totalWidth = x
@@ -178,14 +187,13 @@ public struct PillLayout: Equatable, Sendable {
         let reach = metrics.iconGap / 2
         for (icon, iconX) in zip(pills[index].icons, frame.iconXs)
         where x >= iconX - reach && x < iconX + metrics.iconSize + reach {
-            return .app(icon.key, on: workspace)
+            return .select(.app(icon.key, on: workspace))
         }
-        // `+N` runs to the pill's trailing padding.
-        if let overflowX = frame.overflowX,
-           x >= overflowX - reach && x < frame.x + frame.width - metrics.horizontalPadding + reach {
+        if let overflowX = frame.overflowX, let overflowWidth = frame.overflowWidth,
+           x >= overflowX - reach && x < overflowX + overflowWidth + reach {
             return .windowMenu(workspace)
         }
-        return .workspace(workspace)
+        return .select(.workspace(workspace))
     }
 
     /// The workspace of the pill a click at `x` lands on, found as `target(atX:)` finds it;

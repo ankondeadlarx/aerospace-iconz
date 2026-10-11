@@ -82,28 +82,28 @@ private func visibleGroup(_ name: String) -> WorkspaceGroup {
 
     @Test func clickInsidePillHitsIt() {
         let layout = PillLayout(groups: [group("1", apps: 0), group("2", apps: 0)], config: config(), measure: measure)
-        #expect(layout.target(atX: 5) == .workspace("1"))
-        #expect(layout.target(atX: 30) == .workspace("2"))
+        #expect(layout.target(atX: 5) == .select(.workspace("1")))
+        #expect(layout.target(atX: 30) == .select(.workspace("2")))
     }
 
     @Test func clickInGapGoesToNearestPill() {
         // Pill 1 spans 0–20, pill 2 spans 26–46; the gap splits at 23.
         let layout = PillLayout(groups: [group("1", apps: 0), group("2", apps: 0)], config: config(), measure: measure)
-        #expect(layout.target(atX: 22) == .workspace("1"))
-        #expect(layout.target(atX: 24) == .workspace("2"))
+        #expect(layout.target(atX: 22) == .select(.workspace("1")))
+        #expect(layout.target(atX: 24) == .select(.workspace("2")))
     }
 
     @Test func clickInTheButtonAllowsForTheCenteredImage() {
         // Pills span 0–46, so centered in a 66 pt button they sit at 10–56 and the gap splits at 33.
         let layout = PillLayout(groups: [group("1", apps: 0), group("2", apps: 0)], config: config(), measure: measure)
-        #expect(layout.target(atButtonX: 32, buttonWidth: 66) == .workspace("1"))
-        #expect(layout.target(atButtonX: 34, buttonWidth: 66) == .workspace("2"))
+        #expect(layout.target(atButtonX: 32, buttonWidth: 66) == .select(.workspace("1")))
+        #expect(layout.target(atButtonX: 34, buttonWidth: 66) == .select(.workspace("2")))
     }
 
     @Test func clickOutsideEverythingMapsToEdgePills() {
         let layout = PillLayout(groups: [group("1", apps: 0), group("2", apps: 0)], config: config(), measure: measure)
-        #expect(layout.target(atX: -3) == .workspace("1"))
-        #expect(layout.target(atX: 99) == .workspace("2"))
+        #expect(layout.target(atX: -3) == .select(.workspace("1")))
+        #expect(layout.target(atX: 99) == .select(.workspace("2")))
         #expect(PillLayout(groups: [], config: config(), measure: measure).target(atX: 0) == nil)
     }
 
@@ -118,24 +118,28 @@ private func visibleGroup(_ name: String) -> WorkspaceGroup {
         // One icon gap after the last icon.
         let expectedOverflowX: Double = 63 + 16 + 2
         #expect(frame.overflowX == expectedOverflowX)
+        // "+1" is 2 characters at 10 pt.
+        let expectedOverflowWidth: Double = 20
+        #expect(frame.overflowWidth == expectedOverflowWidth)
     }
 
     @Test func clickOnAnIconTargetsItsApp() {
         // Pill "2" at 26: icons at 45 and 63 (16 wide, 2 apart), "+1" at 81.
         let layout = PillLayout(groups: [group("1", apps: 0), group("2", apps: 3)], config: config(maxIcons: 2), measure: measure)
-        let first = ClickTarget.app(app("2-0").key, on: "2"), second = ClickTarget.app(app("2-1").key, on: "2")
+        let first = ClickTarget.select(.app(app("2-0").key, on: "2"))
+        let second = ClickTarget.select(.app(app("2-1").key, on: "2"))
         #expect(layout.target(atX: 50) == first)
         #expect(layout.target(atX: 64) == second)
         // Half the icon gap on each side belongs to the icon.
         #expect(layout.target(atX: 44.5) == first)
         #expect(layout.target(atX: 79.5) == second)
         // Label, the label–icon gap and padding switch workspace.
-        #expect(layout.target(atX: 28) == .workspace("2"))
-        #expect(layout.target(atX: 33) == .workspace("2"))
-        #expect(layout.target(atX: 43) == .workspace("2"))
-        #expect(layout.target(atX: 104) == .workspace("2"))
+        #expect(layout.target(atX: 28) == .select(.workspace("2")))
+        #expect(layout.target(atX: 33) == .select(.workspace("2")))
+        #expect(layout.target(atX: 43) == .select(.workspace("2")))
+        #expect(layout.target(atX: 104) == .select(.workspace("2")))
         // Between pills, as before.
-        #expect(layout.target(atX: 22) == .workspace("1"))
+        #expect(layout.target(atX: 22) == .select(.workspace("1")))
     }
 
     @Test func clickOnOverflowOpensTheWindowMenu() {
@@ -145,7 +149,7 @@ private func visibleGroup(_ name: String) -> WorkspaceGroup {
         // Half the icon gap on each side belongs to `+N`, as for icons.
         #expect(layout.target(atX: 80.5) == .windowMenu("2"))
         #expect(layout.target(atX: 101.5) == .windowMenu("2"))
-        #expect(layout.target(atX: 102.5) == .workspace("2"))
+        #expect(layout.target(atX: 102.5) == .select(.workspace("2")))
     }
 
     @Test func overflowInTheButtonAllowsForTheCenteredImage() {
@@ -177,8 +181,8 @@ private func visibleGroup(_ name: String) -> WorkspaceGroup {
     @Test func iconClickInTheButtonAllowsForTheCenteredImage() {
         // One pill 0–40 (icon at 19) centered in a 60 pt button: shifted right by 10.
         let layout = PillLayout(groups: [group("1", apps: 1)], config: config(), measure: measure)
-        #expect(layout.target(atButtonX: 35, buttonWidth: 60) == .app(app("1-0").key, on: "1"))
-        #expect(layout.target(atButtonX: 20, buttonWidth: 60) == .workspace("1"))
+        #expect(layout.target(atButtonX: 35, buttonWidth: 60) == .select(.app(app("1-0").key, on: "1")))
+        #expect(layout.target(atButtonX: 20, buttonWidth: 60) == .select(.workspace("1")))
     }
 
     @Test func pillWithoutIconsHasNoIconOrOverflowPositions() {
@@ -234,8 +238,8 @@ private func visibleGroup(_ name: String) -> WorkspaceGroup {
         #expect(layout.target(atX: -5) == nil)
         #expect(layout.target(atX: 40) == nil)
         #expect(layout.target(atX: 82) == nil)
-        #expect(layout.target(atX: 84) == .workspace("1"))
-        #expect(layout.target(atX: 90) == .workspace("1"))
+        #expect(layout.target(atX: 84) == .select(.workspace("1")))
+        #expect(layout.target(atX: 90) == .select(.workspace("1")))
     }
 
     @Test func badgeCountsTowardTheWidthBudgetButOnlyUnfocusedPillsShrink() {

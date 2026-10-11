@@ -3,10 +3,9 @@ import Foundation
 /// Decodes the `aerospace` CLI's JSON output. The argument lists live here too,
 /// so the format strings and the decoders can't drift apart.
 public enum CLIParsing {
-    public static let listWindowsArguments = [
-        "list-windows", "--all", "--json",
-        "--format", "%{window-id} %{app-bundle-id} %{app-name} %{app-pid} %{workspace}",
-    ]
+    /// Everything `WindowInfo` needs; plain `--json` omits the bundle id and workspace.
+    private static let windowFormat = "%{window-id} %{app-bundle-id} %{app-name} %{app-pid} %{workspace}"
+    public static let listWindowsArguments = ["list-windows", "--all", "--json", "--format", windowFormat]
     public static let listWorkspacesArguments = [
         "list-workspaces", "--all", "--json",
         "--format", "%{workspace} %{workspace-is-focused} %{workspace-is-visible}",
@@ -15,36 +14,17 @@ public enum CLIParsing {
         "list-windows", "--focused", "--json", "--format", "%{window-id}",
     ]
     public static func listTitledWindowsArguments(on workspace: WorkspaceName) -> [String] {
-        [
-            "list-windows", "--workspace", workspace.rawValue, "--json",
-            "--format", "%{window-id} %{app-bundle-id} %{app-name} %{app-pid} %{window-title}",
-        ]
+        ["list-windows", "--workspace", workspace.rawValue, "--json", "--format", windowFormat + " %{window-title}"]
     }
     public static let listModesArguments = ["list-modes", "--current", "--json"]
     public static let subscribeArguments = ["subscribe", "--all"]
 
     public static func windows(from data: Data) throws -> [WindowInfo] {
-        try JSONDecoder().decode([RawWindow].self, from: data).map {
-            WindowInfo(
-                id: $0.windowId,
-                appBundleId: ($0.appBundleId?.isEmpty ?? true) ? nil : $0.appBundleId,
-                appName: $0.appName,
-                appPid: $0.appPid,
-                workspace: WorkspaceName($0.workspace)
-            )
-        }
+        try JSONDecoder().decode([RawWindow].self, from: data).map(\.info)
     }
 
     public static func titledWindows(from data: Data) throws -> [TitledWindow] {
-        try JSONDecoder().decode([RawTitledWindow].self, from: data).map {
-            TitledWindow(
-                id: $0.windowId,
-                appBundleId: ($0.appBundleId?.isEmpty ?? true) ? nil : $0.appBundleId,
-                appName: $0.appName,
-                appPid: $0.appPid,
-                title: $0.windowTitle
-            )
-        }
+        try JSONDecoder().decode([RawTitledWindow].self, from: data).map { TitledWindow($0.window.info, title: $0.title) }
     }
 
     public static func workspaces(from data: Data) throws -> [WorkspaceInfo] {
@@ -79,18 +59,29 @@ public enum CLIParsing {
             case windowId = "window-id", appBundleId = "app-bundle-id", appName = "app-name"
             case appPid = "app-pid", workspace
         }
+
+        var info: WindowInfo {
+            WindowInfo(
+                id: windowId,
+                // Apps without a bundle id report it as "".
+                appBundleId: (appBundleId?.isEmpty ?? true) ? nil : appBundleId,
+                appName: appName,
+                appPid: appPid,
+                workspace: WorkspaceName(workspace)
+            )
+        }
     }
 
+    /// A `RawWindow` plus its title, decoded from the same object.
     private struct RawTitledWindow: Decodable {
-        var windowId: Int
-        var appBundleId: String?
-        var appName: String
-        var appPid: Int32
-        var windowTitle: String
+        var window: RawWindow
+        var title: String
 
-        enum CodingKeys: String, CodingKey {
-            case windowId = "window-id", appBundleId = "app-bundle-id", appName = "app-name"
-            case appPid = "app-pid", windowTitle = "window-title"
+        enum CodingKeys: String, CodingKey { case title = "window-title" }
+
+        init(from decoder: any Decoder) throws {
+            window = try RawWindow(from: decoder)
+            title = try decoder.container(keyedBy: CodingKeys.self).decode(String.self, forKey: .title)
         }
     }
 

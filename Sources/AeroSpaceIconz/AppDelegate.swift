@@ -11,16 +11,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         status = StatusController(config: config)
         let client = CLIClient(candidates: config.aerospaceExecutableCandidates, timeout: config.cliTimeout)
-        coordinator = RefreshCoordinator(client: client, timing: config.timing) { [weak self] state in
+        coordinator = RefreshCoordinator(
+            client: client, timing: config.timing, maxTitleLength: config.windowMenuTitleLength
+        ) { [weak self] state in
             self?.status.render(state)
         }
-        status.onClick = { [weak self] target in
-            Task { await self?.coordinator.select(target) }
+        status.onSelect = { [weak self] selection in
+            Task { await self?.coordinator.select(selection) }
         }
         status.onRefresh = { [weak self] in self?.coordinator.nudge() }
-        status.readWindowMenu = { [weak self, config] workspace in
-            await self?.coordinator.windowMenu(for: workspace, maxTitleLength: config.windowMenuTitleLength)
-        }
+        status.readWindowMenu = { [coordinator] workspace in await coordinator!.windowMenu(for: workspace) }
         status.onChooseWindow = { [weak self] id, workspace in
             Task { await self?.coordinator.focus(windowId: id, on: workspace) }
         }

@@ -516,12 +516,13 @@ private func eventually(
 
     /// Workspace "1" as `clientWithWindows()` lists it, with titles.
     private let titledOne = [
-        TitledWindow(id: 30, appBundleId: "a", appName: "A", appPid: 1, title: "A three"),
-        TitledWindow(id: 20, appBundleId: "b", appName: "B", appPid: 2, title: ""),
-        TitledWindow(id: 10, appBundleId: "a", appName: "A", appPid: 1, title: "A one"),
+        TitledWindow(WindowInfo(id: 30, appBundleId: "a", appName: "A", appPid: 1, workspace: "1"), title: "A three"),
+        TitledWindow(WindowInfo(id: 20, appBundleId: "b", appName: "B", appPid: 2, workspace: "1"), title: ""),
+        TitledWindow(WindowInfo(id: 10, appBundleId: "a", appName: "A", appPid: 1, workspace: "1"), title: "A one"),
     ]
 
-    /// A clock that never moves, so the window menu's timeout only fires when a test advances it.
+    /// On a `ManualClock`, so the window menu's timeout fires only when a test advances it
+    /// (a `FakeClock` would fire it at once).
     private func menuCoordinator(_ client: FakeClient, clock: ManualClock = ManualClock()) -> RefreshCoordinator {
         makeCoordinator(client, clock: clock).0
     }
@@ -532,13 +533,13 @@ private func eventually(
         client.focusedWindow = 30
         let coordinator = menuCoordinator(client)
         await coordinator.refresh()
-        let menu = await coordinator.windowMenu(for: "1", maxTitleLength: 60)
+        let menu = await coordinator.windowMenu(for: "1")
         #expect(client.titledReads == ["1"])
-        #expect(menu?.workspace == "1")
+        #expect(menu.workspace == "1")
         // The pill shows A (oldest window 10) before B (20).
-        #expect(menu?.rows?.map(\.windowId) == [10, 30, 20])
-        #expect(menu?.rows?.map(\.label) == ["A one", "A three", "B"])
-        #expect(menu?.rows?.map(\.isFocused) == [false, true, false])
+        #expect(menu.rows.map(\.windowId) == [10, 30, 20])
+        #expect(menu.rows.map(\.label) == ["A one", "A three", "B"])
+        #expect(menu.rows.map(\.isFocused) == [false, true, false])
     }
 
     @Test func windowMenuIsReadFreshNotFromTheModel() async {
@@ -546,9 +547,9 @@ private func eventually(
         let coordinator = menuCoordinator(client)
         await coordinator.refresh()
         let published = client.snapshotCalls
-        client.titled = ["1": [TitledWindow(id: 99, appBundleId: "new", appName: "New", appPid: 9, title: "Fresh")]]
-        let menu = await coordinator.windowMenu(for: "1", maxTitleLength: 60)
-        #expect(menu?.rows?.map(\.label) == ["Fresh"])
+        client.titled = ["1": [TitledWindow(WindowInfo(id: 99, appBundleId: "new", appName: "New", appPid: 9, workspace: "1"), title: "Fresh")]]
+        let menu = await coordinator.windowMenu(for: "1")
+        #expect(menu.rows.map(\.label) == ["Fresh"])
         // Nothing re-read or republished for the menu.
         #expect(client.snapshotCalls == published)
     }
@@ -556,7 +557,7 @@ private func eventually(
     @Test func failedWindowReadMakesAnUnreadableMenu() async {
         let client = clientWithWindows()
         client.titledFailure = Unreachable()
-        let menu = await menuCoordinator(client).windowMenu(for: "1", maxTitleLength: 60)
+        let menu = await menuCoordinator(client).windowMenu(for: "1")
         #expect(menu == .unreadable("1"))
     }
 
@@ -564,16 +565,16 @@ private func eventually(
         let client = clientWithWindows()
         client.titled = ["1": titledOne]
         client.focusedWindowFailure = Unreachable()
-        let menu = await menuCoordinator(client).windowMenu(for: "1", maxTitleLength: 60)
-        #expect(menu?.rows?.count == 3)
-        #expect(menu?.rows?.contains(where: \.isFocused) == false)
+        let menu = await menuCoordinator(client).windowMenu(for: "1")
+        #expect(menu.rows.count == 3)
+        #expect(menu.rows.map(\.isFocused) == [false, false, false])
     }
 
     @Test func windowAndFocusReadsRunTogether() async {
         let client = clientWithWindows()
         client.holdMenuReads()
         let coordinator = menuCoordinator(client)
-        let reading = Task { await coordinator.windowMenu(for: "1", maxTitleLength: 60) }
+        let reading = Task { await coordinator.windowMenu(for: "1") }
         await eventually { client.titledReads.count == 1 && client.focusReads == 1 }
         client.releaseMenuReads()
         _ = await reading.value
@@ -585,26 +586,11 @@ private func eventually(
         client.holdMenuReads()
         let clock = ManualClock()
         let coordinator = menuCoordinator(client, clock: clock)
-        let reading = Task { await coordinator.windowMenu(for: "1", maxTitleLength: 60) }
+        let reading = Task { await coordinator.windowMenu(for: "1") }
         await eventually { clock.pendingDeadlines.contains(Config.standard.timing.windowMenuTimeout) }
         clock.advance(by: Config.standard.timing.windowMenuTimeout)
         #expect(await reading.value == .unreadable("1"))
         client.releaseMenuReads()
-    }
-
-    @Test func secondMenuRequestWhileReadingIsIgnored() async {
-        let client = clientWithWindows()
-        client.titled = ["1": titledOne]
-        client.holdMenuReads()
-        let coordinator = menuCoordinator(client)
-        let first = Task { await coordinator.windowMenu(for: "1", maxTitleLength: 60) }
-        await eventually { client.titledReads.count == 1 }
-        #expect(await coordinator.windowMenu(for: "2", maxTitleLength: 60) == nil)
-        client.releaseMenuReads()
-        #expect(await first.value?.rows?.count == 3)
-        // Once it's done, the next request reads again.
-        #expect(await coordinator.windowMenu(for: "1", maxTitleLength: 60) != nil)
-        #expect(client.titledReads == ["1", "1"])
     }
 
     @Test func choosingAWindowFocusesItThenRunsOneBurst() async {

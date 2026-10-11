@@ -40,7 +40,7 @@ public struct WorkspaceReducer {
             for window in byWorkspace[workspace.name] ?? [] {
                 let key = window.appKey
                 if apps[key] == nil {
-                    apps[key] = AppRef(key: key, bundleId: window.appBundleId, pid: window.appPid)
+                    apps[key] = window.app
                     arrival.append(key)
                 }
             }

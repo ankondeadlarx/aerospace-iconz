@@ -1,7 +1,6 @@
 import AppKit
 
 DebugRender.runIfRequested()
-DebugRender.printWindowMenuIfRequested()
 
 let app = NSApplication.shared
 let delegate = AppDelegate()

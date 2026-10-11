@@ -15,11 +15,13 @@ final class StatusController: NSObject {
     private var appearanceObservation: NSKeyValueObservation?
     private var iconRetry: Task<Void, Never>?
     private var iconRetriesLeft = 0
+    /// From the click that asks for a menu until it closes. The window menu is read first and
+    /// shown on a later run loop pass, so a click in between must not open a second one.
+    private var isMenuOpening = false
 
-    var onClick: ((ClickTarget) -> Void)?
+    var onSelect: ((Selection) -> Void)?
     var onRefresh: (() -> Void)?
-    /// Reads a pill's window menu; `nil` while another one is still being read.
-    var readWindowMenu: ((WorkspaceName) async -> WindowMenu?)?
+    var readWindowMenu: ((WorkspaceName) async -> WindowMenu)?
     /// A window menu row was chosen: focus that window, on that workspace.
     var onChooseWindow: ((Int, WorkspaceName) -> Void)?
 
@@ -70,35 +72,40 @@ final class StatusController: NSObject {
         let x = sender.convert(event.locationInWindow, from: nil).x
         let width = sender.bounds.width
         if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
-            if let workspace = layout.workspace(atButtonX: x, buttonWidth: width) {
-                openWindowMenu(for: workspace)
-            } else {
-                showMenu(windows: nil)
-            }
+            openMenu(for: layout.workspace(atButtonX: x, buttonWidth: width))
             return
         }
         switch layout.target(atButtonX: x, buttonWidth: width) {
-        case .windowMenu(let workspace)?: openWindowMenu(for: workspace)
-        case let target?: onClick?(target)
+        case .windowMenu(let workspace)?: openMenu(for: workspace)
+        case .select(let selection)?: onSelect?(selection)
         case nil: break
         }
     }
 
-    /// Reads the workspace's windows, then shows the menu with them on top.
-    private func openWindowMenu(for workspace: WorkspaceName) {
-        guard let readWindowMenu else { return }
+    /// Shows the menu, with `workspace`'s windows on top (read first) when there is one.
+    /// Ignored while another menu is opening or open.
+    private func openMenu(for workspace: WorkspaceName?) {
+        guard !isMenuOpening else { return }
+        isMenuOpening = true
+        guard let workspace, let readWindowMenu else {
+            showMenu(windows: nil)
+            isMenuOpening = false
+            return
+        }
         Task { [weak self] in
-            guard let windows = await readWindowMenu(workspace) else { return }
+            let windows = await readWindowMenu(workspace)
             // Opened from the run loop rather than inside this task: the menu's tracking loop
             // runs until it closes, and refreshes on the main actor must keep running meanwhile.
-            // Default mode only, so it waits for any other open menu to close instead of
-            // opening inside it.
             RunLoop.main.perform(inModes: [.default]) {
-                MainActor.assumeIsolated { self?.showMenu(windows: windows) }
+                MainActor.assumeIsolated {
+                    self?.showMenu(windows: windows)
+                    self?.isMenuOpening = false
+                }
             }
         }
     }
 
+    /// Returns once the menu has closed.
     private func showMenu(windows: WindowMenu?) {
         guard let button = statusItem.button else { return }
         let menu = NSMenu()
@@ -118,13 +125,9 @@ final class StatusController: NSObject {
 
     /// The workspace header, then one row per window (or a disabled row saying why there are none).
     private func addItems(for windows: WindowMenu, to menu: NSMenu) {
-        menu.addItem(.sectionHeader(title: "Workspace \(windows.workspace)"))
-        guard let rows = windows.rows else {
-            menu.addItem(withTitle: "Couldn't read windows", action: nil, keyEquivalent: "")
-            return
-        }
-        if rows.isEmpty { menu.addItem(withTitle: "No windows", action: nil, keyEquivalent: "") }
-        for row in rows {
+        menu.addItem(.sectionHeader(title: windows.title))
+        if let notice = windows.notice { menu.addItem(withTitle: notice, action: nil, keyEquivalent: "") }
+        for row in windows.rows {
             let item = menu.addItem(withTitle: row.label, action: #selector(chooseWindow(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = ChosenWindow(id: row.windowId, workspace: windows.workspace)

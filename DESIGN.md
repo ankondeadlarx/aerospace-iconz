@@ -77,13 +77,15 @@ Everything goes through the public `aerospace` CLI.
   drawn model (so windows coming and going don't redraw). The focused window is read only at
   click time: `aerospace list-windows --focused --json --format '%{window-id}'`.
 - **Window menu:** read when it's asked for, never stored, two calls in parallel:
-  `aerospace list-windows --workspace <name> --json --format '%{window-id} %{app-bundle-id} %{app-name} %{app-pid} %{window-title}'`
+  `aerospace list-windows --workspace <name> --json --format '%{window-id} %{app-bundle-id} %{app-name} %{app-pid} %{workspace} %{window-title}'`
   (~25 ms; there is no `%{window-is-focused}`) and the focused-window read above. The menu
   opens once both are in, or after `windowMenuTimeout` (0.5 s, shorter than `cliTimeout` so
   a stuck `aerospace` can't hold it back long): windows not read by then make it unreadable;
   a focus not read by then, or failed, only leaves nothing checked. A late call keeps running
-  until `cliTimeout` kills it, and its answer is dropped. A menu request while one is being
-  read is ignored, so repeated clicks open one menu. Costs nothing while idle.
+  until `cliTimeout` kills it, and its answer is dropped. From the click that asks for a menu
+  until it closes, further menu clicks are ignored (the status item holds this, since the menu
+  pops up a run loop pass after the read), so repeated clicks open one menu. Costs nothing
+  while idle.
 
 ## What's shown
 
@@ -172,12 +174,13 @@ Exact values live in `Config.swift`.
     - `CLIParsing`: CLI arguments and JSON decoding; `LineSplitter` for the `subscribe` stream.
     - `WorkspaceReducer`: snapshot → workspace groups (filtering, dedupe, stable icon order).
     - `PillLayout`: groups or unavailable state → pills with every position (mode badge, `+N`,
-      width-fit, hit-testing: workspace, app icon or `+N`; and the workspace a right-click
-      lands on). The placeholder and the badge have no workspace, so clicks on them do nothing.
-    - `WindowMenu`: a workspace's titled windows → menu rows (order, label, truncation, focus).
+      width-fit, hit-testing: a `Selection` (workspace or app icon) or `+N`'s window menu; and
+      the workspace a right-click lands on). The placeholder and the badge have no workspace, so clicks on them do nothing.
+    - `WindowMenu`: a workspace's titled windows → header, rows (order, label, truncation,
+      focus) and the notice shown when there are none.
     - `RefreshCoordinator`: when to re-read (events, bursts, poll, pause reasons, reconnect
-      backoff); publishes `BarState` on change; carries out clicks (`select`: which window
-      to focus, or which workspace); reads window menus (`windowMenu(for:)`) with their timeout.
+      backoff); publishes `BarState` on change; carries out selections (`select`: which
+      window to focus, or which workspace); reads window menus (`windowMenu(for:)`) with their timeout.
     - `AeroSpaceClient` and `MonotonicClock` seams, `Config`.
   - `AeroSpaceIconz` (executable, AppKit, thin glue): `CLIClient` (runs the CLI with a
     timeout), `Subscriptions` (live `subscribe` children), `IconCache`, `PillRenderer`,
