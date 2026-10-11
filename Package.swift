@@ -8,5 +8,6 @@ let package = Package(
         .target(name: "IconzCore"),
         .executableTarget(name: "AeroSpaceIconz", dependencies: ["IconzCore"]),
         .testTarget(name: "IconzCoreTests", dependencies: ["IconzCore"]),
+        .testTarget(name: "AeroSpaceIconzTests", dependencies: ["AeroSpaceIconz"]),
     ]
 )

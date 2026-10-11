@@ -4,6 +4,10 @@ public struct Config: Sendable {
     public var timing: Timing
 
     public var labelFontSize: Double
+    /// `NSFont.Weight` raw value (0.23 = medium).
+    public var labelFontWeight: Double
+    /// Opacity of the `+N` overflow label, relative to the label color.
+    public var overflowLabelAlpha: Double
     /// Fill of the focused pill, as a fraction of the menu bar's label color.
     public var focusedFillAlpha: Double
     /// Outline of a pill visible on another monitor.
@@ -11,6 +15,9 @@ public struct Config: Sendable {
     public var visibleStrokeAlpha: Double
     /// Opacity of the placeholder shown when AeroSpace can't be reached.
     public var unavailableAlpha: Double
+
+    /// Gap between the status item and the top of its right-click menu.
+    public var menuVerticalOffset: Double
 
     public var statusItemAutosaveName: String
     /// GUI apps don't inherit the shell PATH, so look in the usual Homebrew locations.
@@ -23,7 +30,8 @@ public struct Config: Sendable {
                 pillHeight: 20, cornerRadius: 5, pillSpacing: 6
             ),
             maxIconsPerPill: 4,
-            maxTotalWidth: 400
+            maxTotalWidth: 400,
+            placeholderLabel: "–"
         ),
         timing: Timing(
             burstDelays: [.milliseconds(100), .milliseconds(500)],
@@ -31,10 +39,13 @@ public struct Config: Sendable {
             reconnectBackoff: [.seconds(1), .seconds(2), .seconds(5), .seconds(10)]
         ),
         labelFontSize: 11,
+        labelFontWeight: 0.23,
+        overflowLabelAlpha: 0.55,
         focusedFillAlpha: 0.2,
         visibleStrokeWidth: 1,
         visibleStrokeAlpha: 0.35,
         unavailableAlpha: 0.4,
+        menuVerticalOffset: 4,
         statusItemAutosaveName: "AeroSpaceIconz",
         aerospaceExecutableCandidates: ["/opt/homebrew/bin/aerospace", "/usr/local/bin/aerospace"]
     )

@@ -56,11 +56,14 @@ struct CLIClient: AeroSpaceClient {
             continuation.onTermination = { _ in
                 if box.process.isRunning { box.process.terminate() }
             }
+            // Tracked before launch so an instant exit can't remove it before it's added.
             Subscriptions.add(box)
 
             do {
                 try process.run()
             } catch {
+                // No launch, so no termination handler will ever untrack it.
+                Subscriptions.remove(box)
                 continuation.finish()
             }
         }
@@ -132,6 +135,8 @@ enum Subscriptions {
     static func remove(_ box: ProcessBox) {
         _ = lock.withLock { boxes.removeValue(forKey: ObjectIdentifier(box)) }
     }
+
+    static var liveCount: Int { lock.withLock { boxes.count } }
 
     static func terminateAll() {
         let live = lock.withLock { Array(boxes.values) }

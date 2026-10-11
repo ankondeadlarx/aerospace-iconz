@@ -7,11 +7,26 @@ public protocol AeroSpaceClient: Sendable {
     func focus(workspace: String) async throws
 }
 
-public protocol Sleeper: Sendable {
-    func sleep(for duration: Duration) async throws
+/// Monotonic time as a `Duration` since an arbitrary origin, so tests can drive it.
+public protocol MonotonicClock: Sendable {
+    func now() -> Duration
+    func sleep(until deadline: Duration) async throws
 }
 
-public struct TaskSleeper: Sleeper {
+extension MonotonicClock {
+    public func sleep(for duration: Duration) async throws {
+        try await sleep(until: now() + duration)
+    }
+}
+
+public struct SystemClock: MonotonicClock {
+    private let origin = ContinuousClock.now
+
     public init() {}
-    public func sleep(for duration: Duration) async throws { try await Task.sleep(for: duration) }
+
+    public func now() -> Duration { ContinuousClock.now - origin }
+
+    public func sleep(until deadline: Duration) async throws {
+        try await Task.sleep(until: origin + deadline, clock: .continuous)
+    }
 }

@@ -5,13 +5,16 @@ private struct Unreachable: Error {}
 
 /// Scripted AeroSpace: returns whatever `current` is, or throws while `reachable` is false.
 private final class FakeClient: AeroSpaceClient, @unchecked Sendable {
-    var current = Snapshot(workspaces: [WorkspaceInfo(name: "1", isFocused: true, isVisible: true, monitorId: 1)], windows: [])
+    var current = Snapshot(workspaces: [WorkspaceInfo(name: "1", isFocused: true, isVisible: true)], windows: [])
     var reachable = true
+    /// When set, each snapshot takes 20 ms on this clock, like the real CLI.
+    var clock: FakeClock?
     private(set) var snapshotCalls = 0
     private(set) var focused: [String] = []
 
     func snapshot() async throws -> Snapshot {
         snapshotCalls += 1
+        clock?.advance(by: .milliseconds(20))
         guard reachable else { throw Unreachable() }
         return current
     }
@@ -21,16 +24,24 @@ private final class FakeClient: AeroSpaceClient, @unchecked Sendable {
     func focus(workspace: String) async throws { focused.append(workspace) }
 }
 
-/// Records requested sleeps and returns immediately.
-private final class RecordingSleeper: Sleeper, @unchecked Sendable {
-    private(set) var slept: [Duration] = []
-    func sleep(for duration: Duration) async throws { slept.append(duration) }
+/// Time only moves when told to. Sleeping jumps straight to the deadline and records it.
+private final class FakeClock: MonotonicClock, @unchecked Sendable {
+    private var time = Duration.zero
+    private(set) var deadlines: [Duration] = []
+
+    func now() -> Duration { time }
+    func advance(by duration: Duration) { time += duration }
+
+    func sleep(until deadline: Duration) async throws {
+        deadlines.append(deadline)
+        time = max(time, deadline)
+    }
 }
 
 @MainActor
-private func makeCoordinator(_ client: FakeClient, sleeper: RecordingSleeper = RecordingSleeper()) -> (RefreshCoordinator, Box) {
+private func makeCoordinator(_ client: FakeClient, clock: FakeClock = FakeClock()) -> (RefreshCoordinator, Box) {
     let box = Box()
-    let coordinator = RefreshCoordinator(client: client, timing: Config.standard.timing, sleeper: sleeper) { box.states.append($0) }
+    let coordinator = RefreshCoordinator(client: client, timing: Config.standard.timing, clock: clock) { box.states.append($0) }
     return (coordinator, box)
 }
 
@@ -76,12 +87,20 @@ private func makeCoordinator(_ client: FakeClient, sleeper: RecordingSleeper = R
 
     @Test func burstRefreshesNowThenAtEachFollowUp() async throws {
         let client = FakeClient()
-        let sleeper = RecordingSleeper()
-        let (coordinator, _) = makeCoordinator(client, sleeper: sleeper)
+        let (coordinator, _) = makeCoordinator(client)
         try await coordinator.burst()
         #expect(client.snapshotCalls == 3)
-        // Follow-ups at +100 ms and +500 ms after the event.
-        #expect(sleeper.slept == [.milliseconds(100), .milliseconds(400)])
+    }
+
+    @Test func followUpsAreTimedFromTheEventNotFromTheEndOfEachRefresh() async throws {
+        let clock = FakeClock()
+        clock.advance(by: .seconds(7))
+        let client = FakeClient()
+        client.clock = clock
+        let (coordinator, _) = makeCoordinator(client, clock: clock)
+        try await coordinator.burst()
+        // Each refresh takes 20 ms, but the follow-ups still land at +100 ms and +500 ms.
+        #expect(clock.deadlines == [.seconds(7) + .milliseconds(100), .seconds(7) + .milliseconds(500)])
     }
 
     @Test func focusForwardsToClientAndRefreshes() async {

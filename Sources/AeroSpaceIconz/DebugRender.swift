@@ -15,12 +15,8 @@ enum DebugRender {
         Task { @MainActor in
             var reducer = WorkspaceReducer()
             let renderer = PillRenderer(config: config, icons: IconCache())
-            let layout: PillLayout
-            if let snapshot = try? await client.snapshot() {
-                layout = renderer.layout(for: reducer.groups(for: snapshot))
-            } else {
-                layout = renderer.unavailableLayout()
-            }
+            let state: BarState = (try? await client.snapshot()).map { .workspaces(reducer.groups(for: $0)) } ?? .unavailable
+            let layout = renderer.layout(for: state)
             for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
                 write(renderer.image(for: layout), appearance: NSAppearance(named: appearance)!,
                       to: directory.appendingPathComponent("pills-\(name).png"))

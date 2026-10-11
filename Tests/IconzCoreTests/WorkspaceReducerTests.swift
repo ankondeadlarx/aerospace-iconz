@@ -2,15 +2,15 @@ import Testing
 @testable import IconzCore
 
 private func ws(_ name: String, focused: Bool = false, visible: Bool = false) -> WorkspaceInfo {
-    WorkspaceInfo(name: name, isFocused: focused, isVisible: visible || focused, monitorId: 1)
+    WorkspaceInfo(name: name, isFocused: focused, isVisible: visible || focused)
 }
 
 private func win(_ id: Int, _ app: String, on workspace: String, pid: Int32? = nil) -> WindowInfo {
-    WindowInfo(id: id, appBundleId: "bundle.\(app)", appName: app, appPid: pid ?? Int32(app.hashValue & 0xFFFF), workspace: workspace)
+    WindowInfo(id: id, appBundleId: app, appName: app, appPid: pid ?? Int32(app.hashValue & 0xFFFF), workspace: workspace)
 }
 
 private func appNames(_ groups: [WorkspaceGroup]) -> [String: [String]] {
-    Dictionary(uniqueKeysWithValues: groups.map { ($0.name, $0.apps.map(\.name)) })
+    Dictionary(uniqueKeysWithValues: groups.map { ($0.name, $0.apps.map(\.key)) })
 }
 
 @Suite struct WorkspaceReducerTests {
@@ -98,7 +98,7 @@ private func appNames(_ groups: [WorkspaceGroup]) -> [String: [String]] {
                 WindowInfo(id: 2, appBundleId: nil, appName: "Tool", appPid: 7, workspace: "1"),
             ]
         ))
-        #expect(groups[0].apps == [AppRef(key: "Tool", bundleId: nil, name: "Tool", pid: 7)])
+        #expect(groups[0].apps == [AppRef(key: "Tool", bundleId: nil, pid: 7)])
     }
 
     @Test func carriesFocusAndVisibility() {

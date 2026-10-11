@@ -26,28 +26,44 @@ public struct LayoutConfig: Equatable, Sendable {
     public var metrics: PillMetrics
     public var maxIconsPerPill: Int
     public var maxTotalWidth: Double
+    /// Label of the single pill shown while AeroSpace can't be reached.
+    public var placeholderLabel: String
 
-    public init(metrics: PillMetrics, maxIconsPerPill: Int, maxTotalWidth: Double) {
+    public init(metrics: PillMetrics, maxIconsPerPill: Int, maxTotalWidth: Double, placeholderLabel: String) {
         self.metrics = metrics
         self.maxIconsPerPill = maxIconsPerPill
         self.maxTotalWidth = maxTotalWidth
+        self.placeholderLabel = placeholderLabel
     }
+}
+
+/// How a pill's background is drawn.
+public enum PillEmphasis: Equatable, Sendable {
+    /// The focused workspace.
+    case fill
+    /// Visible on another monitor, or the placeholder.
+    case outline
+    case none
 }
 
 /// A workspace ready to draw: the icons that fit and how many were cut.
 public struct Pill: Equatable, Sendable {
     public var name: String
-    public var isFocused: Bool
-    public var isVisible: Bool
+    public var emphasis: PillEmphasis
     public var icons: [AppRef]
     public var overflow: Int
 
     public var overflowLabel: String? { overflow > 0 ? "+\(overflow)" : nil }
 }
 
+/// Where a pill and each of its parts go, in points from the left of the image.
+/// The renderer draws at exactly these positions, so drawing and click hit-testing can't drift.
 public struct PillFrame: Equatable, Sendable {
     public var x: Double
     public var width: Double
+    public var labelX: Double
+    public var iconXs: [Double]
+    public var overflowX: Double?
 }
 
 /// Where each pill goes. `measure` returns the width of a label string in the label font,
@@ -56,6 +72,19 @@ public struct PillLayout: Equatable, Sendable {
     public private(set) var pills: [Pill] = []
     public private(set) var frames: [PillFrame] = []
     public private(set) var totalWidth: Double = 0
+    /// Drawn at reduced opacity: AeroSpace can't be reached.
+    public private(set) var isDimmed = false
+
+    public init(state: BarState, config: LayoutConfig, measure: (String) -> Double) {
+        switch state {
+        case .workspaces(let groups):
+            self.init(groups: groups, config: config, measure: measure)
+        case .unavailable:
+            let placeholder = WorkspaceGroup(name: config.placeholderLabel, isFocused: false, isVisible: true, apps: [])
+            self.init(groups: [placeholder], config: config, measure: measure)
+            isDimmed = true
+        }
+    }
 
     public init(groups: [WorkspaceGroup], config: LayoutConfig, measure: (String) -> Double) {
         // Lower the icon cap on unfocused pills one step at a time until everything fits.
@@ -71,20 +100,28 @@ public struct PillLayout: Equatable, Sendable {
         for group in groups {
             let limit = group.isFocused ? focusedCap : cap
             let icons = Array(group.apps.prefix(limit))
-            let pill = Pill(name: group.name, isFocused: group.isFocused, isVisible: group.isVisible,
-                            icons: icons, overflow: group.apps.count - icons.count)
-
-            var width = m.horizontalPadding * 2 + measure(pill.name)
-            if !icons.isEmpty {
-                width += m.labelIconGap + Double(icons.count) * m.iconSize + Double(icons.count - 1) * m.iconGap
-            }
-            if let overflowLabel = pill.overflowLabel {
-                width += m.iconGap + measure(overflowLabel)
-            }
+            let emphasis: PillEmphasis = group.isFocused ? .fill : group.isVisible ? .outline : .none
+            let pill = Pill(name: group.name, emphasis: emphasis, icons: icons, overflow: group.apps.count - icons.count)
 
             if !pills.isEmpty { x += m.pillSpacing }
+            let labelX = x + m.horizontalPadding
+            var cursor = labelX + measure(pill.name)
+            var iconXs: [Double] = []
+            for index in icons.indices {
+                cursor += index == 0 ? m.labelIconGap : m.iconGap
+                iconXs.append(cursor)
+                cursor += m.iconSize
+            }
+            var overflowX: Double?
+            if let overflowLabel = pill.overflowLabel {
+                cursor += m.iconGap
+                overflowX = cursor
+                cursor += measure(overflowLabel)
+            }
+            let width = cursor + m.horizontalPadding - x
+
             pills.append(pill)
-            frames.append(PillFrame(x: x, width: width))
+            frames.append(PillFrame(x: x, width: width, labelX: labelX, iconXs: iconXs, overflowX: overflowX))
             x += width
         }
         totalWidth = x

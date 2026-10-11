@@ -9,7 +9,7 @@ public enum CLIParsing {
     ]
     public static let listWorkspacesArguments = [
         "list-workspaces", "--all", "--json",
-        "--format", "%{workspace} %{workspace-is-focused} %{workspace-is-visible} %{monitor-id}",
+        "--format", "%{workspace} %{workspace-is-focused} %{workspace-is-visible}",
     ]
     public static let subscribeArguments = ["subscribe", "--all"]
 
@@ -27,13 +27,13 @@ public enum CLIParsing {
 
     public static func workspaces(from data: Data) throws -> [WorkspaceInfo] {
         try JSONDecoder().decode([RawWorkspace].self, from: data).map {
-            WorkspaceInfo(name: $0.workspace, isFocused: $0.isFocused, isVisible: $0.isVisible, monitorId: $0.monitorId)
+            WorkspaceInfo(name: $0.workspace, isFocused: $0.isFocused, isVisible: $0.isVisible)
         }
     }
 
     public static func event(fromLine line: String) -> AeroSpaceEvent? {
-        guard let raw = try? JSONDecoder().decode(RawEvent.self, from: Data(line.utf8)) else { return nil }
-        return AeroSpaceEvent(name: raw.event)
+        guard (try? JSONDecoder().decode(RawEvent.self, from: Data(line.utf8))) != nil else { return nil }
+        return AeroSpaceEvent()
     }
 
     private struct RawWindow: Decodable {
@@ -53,11 +53,9 @@ public enum CLIParsing {
         var workspace: String
         var isFocused: Bool
         var isVisible: Bool
-        var monitorId: Int
 
         enum CodingKeys: String, CodingKey {
             case workspace, isFocused = "workspace-is-focused", isVisible = "workspace-is-visible"
-            case monitorId = "monitor-id"
         }
     }
 

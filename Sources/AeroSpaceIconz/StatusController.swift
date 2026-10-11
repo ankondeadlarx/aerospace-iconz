@@ -9,7 +9,8 @@ final class StatusController: NSObject {
     private let renderer: PillRenderer
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var state: BarState = .unavailable
-    private var layout = PillLayout(groups: [], config: Config.standard.layout, measure: { _ in 0 })
+    /// What's currently drawn; used to map clicks to workspaces.
+    private var layout: PillLayout
     private var appearanceObservation: NSKeyValueObservation?
 
     var onSelectWorkspace: ((String) -> Void)?
@@ -18,6 +19,7 @@ final class StatusController: NSObject {
     init(config: Config) {
         self.config = config
         renderer = PillRenderer(config: config, icons: IconCache())
+        layout = renderer.layout(for: .unavailable)
         super.init()
 
         statusItem.autosaveName = config.statusItemAutosaveName
@@ -41,16 +43,8 @@ final class StatusController: NSObject {
     }
 
     private func redraw() {
-        let dimmed: Bool
-        switch state {
-        case .unavailable:
-            layout = renderer.unavailableLayout()
-            dimmed = true
-        case .workspaces(let groups):
-            layout = renderer.layout(for: groups)
-            dimmed = false
-        }
-        statusItem.button?.image = renderer.image(for: layout, dimmed: dimmed)
+        layout = renderer.layout(for: state)
+        statusItem.button?.image = renderer.image(for: layout)
     }
 
     @objc private func clicked(_ sender: NSStatusBarButton) {
@@ -76,7 +70,7 @@ final class StatusController: NSObject {
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit AeroSpaceIconz", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + config.menuVerticalOffset), in: button)
     }
 
     @objc private func refresh() { onRefresh?() }

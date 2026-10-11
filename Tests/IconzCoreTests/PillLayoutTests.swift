@@ -1,7 +1,7 @@
 import Testing
 @testable import IconzCore
 
-private func app(_ name: String) -> AppRef { AppRef(key: name, bundleId: name, name: name, pid: 1) }
+private func app(_ name: String) -> AppRef { AppRef(key: name, bundleId: name, pid: 1) }
 
 private func group(_ name: String, apps count: Int, focused: Bool = false) -> WorkspaceGroup {
     WorkspaceGroup(name: name, isFocused: focused, isVisible: focused, apps: (0..<count).map { app("\(name)-\($0)") })
@@ -17,7 +17,11 @@ private let metrics = PillMetrics(
 )
 
 private func config(maxIcons: Int = 4, maxWidth: Double = 1000) -> LayoutConfig {
-    LayoutConfig(metrics: metrics, maxIconsPerPill: maxIcons, maxTotalWidth: maxWidth)
+    LayoutConfig(metrics: metrics, maxIconsPerPill: maxIcons, maxTotalWidth: maxWidth, placeholderLabel: "–")
+}
+
+private func visibleGroup(_ name: String) -> WorkspaceGroup {
+    WorkspaceGroup(name: name, isFocused: false, isVisible: true, apps: [])
 }
 
 @Suite struct PillLayoutTests {
@@ -90,5 +94,45 @@ private func config(maxIcons: Int = 4, maxWidth: Double = 1000) -> LayoutConfig 
         #expect(layout.workspace(atX: -3) == "1")
         #expect(layout.workspace(atX: 99) == "2")
         #expect(PillLayout(groups: [], config: config(), measure: measure).workspace(atX: 0) == nil)
+    }
+
+    @Test func partsAreLaidOutInsideThePill() {
+        // Second pill, so positions are offset by the first pill (20 wide) + spacing 6.
+        let layout = PillLayout(groups: [group("1", apps: 0), group("2", apps: 3)], config: config(maxIcons: 2), measure: measure)
+        let frame = layout.frames[1]
+        #expect(frame.x == 26)
+        #expect(frame.labelX == 26 + 5)
+        // Label "2" is 10 wide, then the label-icon gap of 4; icons are 16 with 2 between.
+        #expect(frame.iconXs == [45, 63])
+        // One icon gap after the last icon.
+        let expectedOverflowX: Double = 63 + 16 + 2
+        #expect(frame.overflowX == expectedOverflowX)
+    }
+
+    @Test func pillWithoutIconsHasNoIconOrOverflowPositions() {
+        let layout = PillLayout(groups: [group("1", apps: 0, focused: true)], config: config(), measure: measure)
+        #expect(layout.frames[0].iconXs.isEmpty)
+        #expect(layout.frames[0].overflowX == nil)
+    }
+
+    @Test func emphasisFollowsFocusThenVisibility() {
+        let layout = PillLayout(
+            groups: [group("1", apps: 1, focused: true), visibleGroup("2"), group("3", apps: 1)],
+            config: config(), measure: measure
+        )
+        #expect(layout.pills.map(\.emphasis) == [.fill, .outline, .none])
+    }
+
+    @Test func unavailableStateIsOneDimmedOutlinedPlaceholderPill() {
+        let layout = PillLayout(state: .unavailable, config: config(), measure: measure)
+        #expect(layout.pills.map(\.name) == ["–"])
+        #expect(layout.pills.map(\.emphasis) == [.outline])
+        #expect(layout.isDimmed)
+    }
+
+    @Test func workspacesStateIsNotDimmed() {
+        let layout = PillLayout(state: .workspaces([group("1", apps: 1, focused: true)]), config: config(), measure: measure)
+        #expect(layout.pills.map(\.name) == ["1"])
+        #expect(!layout.isDimmed)
     }
 }

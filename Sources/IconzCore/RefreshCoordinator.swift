@@ -13,7 +13,7 @@ public enum BarState: Equatable, Sendable {
 public final class RefreshCoordinator {
     private let client: any AeroSpaceClient
     private let timing: Timing
-    private let sleeper: any Sleeper
+    private let clock: any MonotonicClock
     private let publish: @MainActor (BarState) -> Void
 
     private var reducer = WorkspaceReducer()
@@ -25,12 +25,12 @@ public final class RefreshCoordinator {
     private var loops: [Task<Void, Never>] = []
 
     public init(
-        client: any AeroSpaceClient, timing: Timing, sleeper: any Sleeper = TaskSleeper(),
+        client: any AeroSpaceClient, timing: Timing, clock: any MonotonicClock = SystemClock(),
         publish: @escaping @MainActor (BarState) -> Void
     ) {
         self.client = client
         self.timing = timing
-        self.sleeper = sleeper
+        self.clock = clock
         self.publish = publish
     }
 
@@ -66,12 +66,11 @@ public final class RefreshCoordinator {
     }
 
     func burst() async throws {
+        let event = clock.now()
         await refresh()
-        var elapsed = Duration.zero
         for offset in timing.burstDelays {
-            try await sleeper.sleep(for: offset - elapsed)
+            try await clock.sleep(until: event + offset)
             try Task.checkCancellation()
-            elapsed = offset
             await refresh()
         }
     }
@@ -107,14 +106,14 @@ public final class RefreshCoordinator {
             }
             // Subscription ended: AeroSpace quit or restarted. Show it, then reconnect.
             await refresh()
-            try? await sleeper.sleep(for: timing.reconnectDelay(attempt: attempt))
+            try? await clock.sleep(for: timing.reconnectDelay(attempt: attempt))
             attempt += 1
         }
     }
 
     private func pollLoop() async {
         while !Task.isCancelled {
-            try? await sleeper.sleep(for: timing.pollInterval)
+            try? await clock.sleep(for: timing.pollInterval)
             if !isPaused { await refresh() }
         }
     }

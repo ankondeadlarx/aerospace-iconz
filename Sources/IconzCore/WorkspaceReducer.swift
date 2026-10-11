@@ -3,13 +3,11 @@
 public struct AppRef: Hashable, Sendable {
     public var key: String
     public var bundleId: String?
-    public var name: String
     public var pid: Int32
 
-    public init(key: String, bundleId: String?, name: String, pid: Int32) {
+    public init(key: String, bundleId: String?, pid: Int32) {
         self.key = key
         self.bundleId = bundleId
-        self.name = name
         self.pid = pid
     }
 }
@@ -47,7 +45,7 @@ public struct WorkspaceReducer {
             for window in byWorkspace[workspace.name] ?? [] {
                 let key = window.appBundleId ?? window.appName
                 if apps[key] == nil {
-                    apps[key] = AppRef(key: key, bundleId: window.appBundleId, name: window.appName, pid: window.appPid)
+                    apps[key] = AppRef(key: key, bundleId: window.appBundleId, pid: window.appPid)
                     arrival.append(key)
                 }
             }

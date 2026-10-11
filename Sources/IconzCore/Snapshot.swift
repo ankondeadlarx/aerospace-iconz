@@ -20,13 +20,11 @@ public struct WorkspaceInfo: Equatable, Sendable {
     public var name: String
     public var isFocused: Bool
     public var isVisible: Bool
-    public var monitorId: Int
 
-    public init(name: String, isFocused: Bool, isVisible: Bool, monitorId: Int) {
+    public init(name: String, isFocused: Bool, isVisible: Bool) {
         self.name = name
         self.isFocused = isFocused
         self.isVisible = isVisible
-        self.monitorId = monitorId
     }
 }
 
@@ -41,9 +39,7 @@ public struct Snapshot: Equatable, Sendable {
     }
 }
 
-/// A line from `aerospace subscribe`. Only the name matters: any event triggers a re-read.
+/// A line from `aerospace subscribe`. Carries nothing: any event triggers a full re-read.
 public struct AeroSpaceEvent: Equatable, Sendable {
-    public var name: String
-
-    public init(name: String) { self.name = name }
+    public init() {}
 }
