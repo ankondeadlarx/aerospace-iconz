@@ -50,6 +50,14 @@ import Testing
         #expect(try CLIParsing.mode(from: Data("[]".utf8)) == nil)
     }
 
+    @Test func parsesFocusedWindowId() throws {
+        #expect(try CLIParsing.focusedWindowId(from: Data(#"[{ "window-id" : 22010 }]"#.utf8)) == 22010)
+    }
+
+    @Test func noFocusedWindowIsNil() throws {
+        #expect(try CLIParsing.focusedWindowId(from: Data("[]".utf8)) == nil)
+    }
+
     @Test func malformedJSONThrows() {
         #expect(throws: (any Error).self) { try CLIParsing.windows(from: Data("nope".utf8)) }
     }

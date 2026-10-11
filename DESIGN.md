@@ -72,6 +72,10 @@ Everything goes through the public `aerospace` CLI.
   Any failed read (CLI missing, non-zero exit, timeout, unparseable output) shows the
   placeholder; the next good read clears it. A read cancelled mid-burst changes nothing.
 - **Switching:** `aerospace workspace <name>`.
+- **Focusing a window:** `aerospace focus --window-id <id>`. Which windows an app has on a
+  workspace comes from the last re-read, kept by the coordinator but not part of the drawn
+  model (so windows coming and going don't redraw). The focused window is read only at
+  click time: `aerospace list-windows --focused --json --format '%{window-id}'`.
 
 ## What's shown
 
@@ -116,6 +120,11 @@ Exact values live in `Config.swift`.
 
 - Left-click pill → switch workspace. A click in the gap between pills goes to the nearer
   one; past either end, to the end pill. The mode badge and the placeholder do nothing.
+- Left-click an icon (the icon plus half the icon gap on each side) → focus that app's
+  oldest window (lowest id) on that workspace. If one of that app's windows there is
+  already focused, focus its next one instead, wrapping around. If the focused window can't
+  be read, it counts as not focused. If the app has no window there any more, or the focus
+  fails, switch to the workspace instead. Label, padding, `+N` and gaps still switch.
 - Right-click or Ctrl-click → menu: Refresh, Launch at Login (`SMAppService.mainApp`), Quit.
   - Launch at Login is checked when enabled. When macOS needs the user to allow it, it shows
     mixed with "(Allow in System Settings…)" and opens Login Items. A failed toggle shows an alert.
@@ -137,17 +146,18 @@ Exact values live in `Config.swift`.
     - `CLIParsing`: CLI arguments and JSON decoding; `LineSplitter` for the `subscribe` stream.
     - `WorkspaceReducer`: snapshot → workspace groups (filtering, dedupe, stable icon order).
     - `PillLayout`: groups or unavailable state → pills with every position (mode badge, `+N`,
-      width-fit, hit-testing). The placeholder and the badge have no workspace, so clicks on
+      width-fit, hit-testing: workspace or app icon). The placeholder and the badge have no workspace, so clicks on
       them do nothing.
     - `RefreshCoordinator`: when to re-read (events, bursts, poll, pause reasons, reconnect
-      backoff); publishes `BarState` on change.
+      backoff); publishes `BarState` on change; carries out clicks (which window to focus).
     - `AeroSpaceClient` and `MonotonicClock` seams, `Config`.
   - `AeroSpaceIconz` (executable, AppKit, thin glue): `CLIClient` (runs the CLI with a
     timeout), `Subscriptions` (live `subscribe` children), `IconCache`, `PillRenderer`,
     `StatusController` (status item, clicks, menu), `LaunchAtLogin` (menu item per
     `SMAppService` status), `AppDelegate` (wiring, sleep/lock/app-quit notifications,
     SIGTERM), `DebugRender`.
-- Seam: `AeroSpaceClient` (`snapshot()`, `mode()`, `events()`, `focus(workspace:)`). The real
+- Seam: `AeroSpaceClient` (`snapshot()`, `mode()`, `events()`, `focus(workspace:)`,
+  `focusedWindowId()`, `focus(windowId:)`). The real
   implementation runs the CLI; tests use a fake. Time goes through `MonotonicClock`
   (`SystemClock` in the app, a manually advanced fake in tests).
 - Debug: `AeroSpaceIconz --render-png <dir> [--mode <name>]` reads the live AeroSpace, renders
@@ -181,6 +191,9 @@ The app needs nothing in `~/.config/aerospace/aerospace.toml`. Changes made alon
   stream on whichever came first dropped trailing events and left the process tracked
   (17/20 test runs failed); the stream now ends only after both.
 
+- `focus --window-id` on a window in another workspace switches to that workspace and
+  focuses the window (exit 0). An id that no longer exists exits 2 and changes nothing.
+- `list-windows --focused --json --format '%{window-id}'` → `[{"window-id": …}]`.
 - Idle CPU over 5 minutes (CPU-time delta from `ps`, at the 3 s poll): v1 app 0.143 %;
   with `list-modes` on every poll 0.213 %, plus each `aerospace` child costs ~8 ms CPU
   (≈ 0.27 % at one per poll), which the app's own figure doesn't include; with the poll
@@ -208,7 +221,8 @@ merged locally, then tagged.
 2. **v1.2 Click an icon to focus.** `focus --window-id` on that app's oldest window on
    that workspace; if that app is already focused there, cycle to its next window. The
    focused window is read at click time (`list-windows --focused`), not kept in the model.
-   Label, padding and gaps still switch workspace. `+N` opens the window menu (v1.3).
+   Label, padding and gaps still switch workspace. `+N` switches too until v1.3, where it
+   opens the window menu.
 3. **v1.3 Per-pill window menu.** Right-click a pill → that workspace's windows (icon +
    title, an empty title shows the app name, middle-truncated at ~60 chars, in icon order
    then window id, focused one checked), separator, then Refresh / Launch at Login / Quit.

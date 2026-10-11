@@ -35,6 +35,14 @@ struct CLIClient: AeroSpaceClient {
         _ = try await run(["workspace", workspace.rawValue])
     }
 
+    func focusedWindowId() async throws -> Int? {
+        try CLIParsing.focusedWindowId(from: try await run(CLIParsing.listFocusedWindowArguments))
+    }
+
+    func focus(windowId: Int) async throws {
+        _ = try await run(["focus", "--window-id", String(windowId)])
+    }
+
     func events() -> AsyncStream<AeroSpaceEvent> {
         AsyncStream { continuation in
             let (process, output) = makeProcess(CLIParsing.subscribeArguments)

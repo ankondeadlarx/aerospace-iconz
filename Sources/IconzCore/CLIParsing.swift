@@ -11,6 +11,9 @@ public enum CLIParsing {
         "list-workspaces", "--all", "--json",
         "--format", "%{workspace} %{workspace-is-focused} %{workspace-is-visible}",
     ]
+    public static let listFocusedWindowArguments = [
+        "list-windows", "--focused", "--json", "--format", "%{window-id}",
+    ]
     public static let listModesArguments = ["list-modes", "--current", "--json"]
     public static let subscribeArguments = ["subscribe", "--all"]
 
@@ -35,6 +38,11 @@ public enum CLIParsing {
     /// The current binding mode, or `nil` if AeroSpace reported none.
     public static func mode(from data: Data) throws -> String? {
         try JSONDecoder().decode([RawMode].self, from: data).first?.modeId
+    }
+
+    /// The focused window's id, or `nil` if no window has focus.
+    public static func focusedWindowId(from data: Data) throws -> Int? {
+        try JSONDecoder().decode([RawWindowId].self, from: data).first?.windowId
     }
 
     public static func event(fromLine line: String) -> AeroSpaceEvent? {
@@ -63,6 +71,11 @@ public enum CLIParsing {
         enum CodingKeys: String, CodingKey {
             case workspace, isFocused = "workspace-is-focused", isVisible = "workspace-is-visible"
         }
+    }
+
+    private struct RawWindowId: Decodable {
+        var windowId: Int
+        enum CodingKeys: String, CodingKey { case windowId = "window-id" }
     }
 
     private struct RawMode: Decodable {

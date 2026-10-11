@@ -17,6 +17,10 @@ private final class FakeClient: AeroSpaceClient, Sendable {
         var modeFailure: (any Error & Sendable)?
         var modeCalls = 0
         var focused: [WorkspaceName] = []
+        var focusedWindow: Int?
+        var focusedWindowFailure: (any Error & Sendable)?
+        var windowFocusFailure: (any Error & Sendable)?
+        var focusedWindows: [Int] = []
         var subscriptions: [AsyncStream<AeroSpaceEvent>.Continuation] = []
         var endedSubscriptions = 0
         var isHolding = false
@@ -49,6 +53,21 @@ private final class FakeClient: AeroSpaceClient, Sendable {
     }
     var modeCalls: Int { state.withLock { $0.modeCalls } }
     var focused: [WorkspaceName] { state.withLock { $0.focused } }
+    /// Answer for `focusedWindowId()`.
+    var focusedWindow: Int? {
+        get { state.withLock { $0.focusedWindow } }
+        set { state.withLock { $0.focusedWindow = newValue } }
+    }
+    var focusedWindowFailure: (any Error & Sendable)? {
+        get { state.withLock { $0.focusedWindowFailure } }
+        set { state.withLock { $0.focusedWindowFailure = newValue } }
+    }
+    var windowFocusFailure: (any Error & Sendable)? {
+        get { state.withLock { $0.windowFocusFailure } }
+        set { state.withLock { $0.windowFocusFailure = newValue } }
+    }
+    /// Every `focus(windowId:)` call, failed ones included.
+    var focusedWindows: [Int] { state.withLock { $0.focusedWindows } }
     var subscriptionCount: Int { state.withLock { $0.subscriptions.count } }
     var openSubscriptionCount: Int { state.withLock { $0.subscriptions.count - $0.endedSubscriptions } }
 
@@ -82,6 +101,20 @@ private final class FakeClient: AeroSpaceClient, Sendable {
     }
 
     func focus(workspace: WorkspaceName) async throws { state.withLock { $0.focused.append(workspace) } }
+
+    func focusedWindowId() async throws -> Int? {
+        let (window, failure) = state.withLock { ($0.focusedWindow, $0.focusedWindowFailure) }
+        if let failure { throw failure }
+        return window
+    }
+
+    func focus(windowId: Int) async throws {
+        let failure = state.withLock { s in
+            s.focusedWindows.append(windowId)
+            return s.windowFocusFailure
+        }
+        if let failure { throw failure }
+    }
 
     private func subscriptionEnded() { state.withLock { $0.endedSubscriptions += 1 } }
 
@@ -338,6 +371,78 @@ private func eventually(
         await coordinator.burstTask?.value
         #expect(client.focused == ["2"])
         #expect(client.snapshotCalls == 3)
+    }
+
+    /// App A has windows 30 and 10 on "1" (and 5 on "2"); B has 20 on "1".
+    private func clientWithWindows() -> FakeClient {
+        let client = FakeClient()
+        client.current.windows = [
+            WindowInfo(id: 30, appBundleId: "a", appName: "A", appPid: 1, workspace: "1"),
+            WindowInfo(id: 20, appBundleId: "b", appName: "B", appPid: 2, workspace: "1"),
+            WindowInfo(id: 10, appBundleId: "a", appName: "A", appPid: 1, workspace: "1"),
+            WindowInfo(id: 5, appBundleId: "a", appName: "A", appPid: 1, workspace: "2"),
+        ]
+        return client
+    }
+
+    private let appA = AppKey(bundleId: "a", appName: "A")
+
+    @Test func iconClickFocusesTheAppsOldestWindowOnThatWorkspace() async {
+        let client = clientWithWindows()
+        client.focusedWindow = 20
+        let (coordinator, _) = makeCoordinator(client)
+        await coordinator.refresh()
+        await coordinator.focus(app: appA, on: "1")
+        #expect(client.focusedWindows == [10])
+        #expect(client.focused.isEmpty)
+    }
+
+    @Test func iconClickOnTheFocusedAppCyclesThroughItsWindowsThere() async {
+        let client = clientWithWindows()
+        let (coordinator, _) = makeCoordinator(client)
+        await coordinator.refresh()
+        client.focusedWindow = 10
+        await coordinator.focus(app: appA, on: "1")
+        client.focusedWindow = 30
+        await coordinator.focus(app: appA, on: "1")
+        #expect(client.focusedWindows == [30, 10])
+    }
+
+    @Test func unreadableFocusCountsAsNotFocused() async {
+        let client = clientWithWindows()
+        client.focusedWindowFailure = Unreachable()
+        let (coordinator, _) = makeCoordinator(client)
+        await coordinator.refresh()
+        await coordinator.focus(app: appA, on: "1")
+        #expect(client.focusedWindows == [10])
+    }
+
+    @Test func iconClickForAnAppWithNoWindowThereSwitchesWorkspace() async {
+        let client = clientWithWindows()
+        let (coordinator, _) = makeCoordinator(client)
+        await coordinator.refresh()
+        await coordinator.focus(app: AppKey(bundleId: "gone", appName: "Gone"), on: "1")
+        #expect(client.focusedWindows.isEmpty)
+        #expect(client.focused == ["1"])
+    }
+
+    @Test func failedWindowFocusSwitchesWorkspace() async {
+        let client = clientWithWindows()
+        client.windowFocusFailure = Unreachable()
+        let (coordinator, _) = makeCoordinator(client)
+        await coordinator.refresh()
+        await coordinator.focus(app: appA, on: "1")
+        #expect(client.focusedWindows == [10])
+        #expect(client.focused == ["1"])
+    }
+
+    @Test func iconClickRunsOneBurst() async {
+        let client = clientWithWindows()
+        let (coordinator, _) = makeCoordinator(client)
+        await coordinator.refresh()
+        await coordinator.focus(app: appA, on: "1")
+        await coordinator.burstTask?.value
+        #expect(client.snapshotCalls == 1 + 3)
     }
 
     @Test func reconnectBackoffGrowsAndCaps() {

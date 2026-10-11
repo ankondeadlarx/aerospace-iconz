@@ -26,6 +26,10 @@ private func fakeAerospace(
         \(hang) echo '[{"workspace":"1","workspace-is-focused":true,"workspace-is-visible":true}]' ;;
       "list-modes --current --json")
         \(hang) \(modesFail ? "exit 1;" : "") echo '[{"mode-id":"service"}]' ;;
+      "list-windows --focused --json --format %{window-id}")
+        echo '[{"window-id":5}]' ;;
+      "focus --window-id 5") ;;
+      'focus --window-id '*) exit 1 ;;
       "workspace 1") ;;
       'workspace '*) exit 1 ;;
       "subscribe --all")
@@ -73,6 +77,21 @@ private func makeClient(_ path: String, timeout: Duration = .seconds(5)) -> CLIC
     @Test func focusThrowsWhenTheCommandFails() async throws {
         let client = makeClient(try fakeAerospace())
         await #expect(throws: CLIError.self) { try await client.focus(workspace: "9") }
+    }
+
+    @Test func focusedWindowIdReadsTheFocusedWindow() async throws {
+        let client = makeClient(try fakeAerospace())
+        #expect(try await client.focusedWindowId() == 5)
+    }
+
+    @Test func focusWindowSucceedsWhenTheCommandDoes() async throws {
+        let client = makeClient(try fakeAerospace())
+        try await client.focus(windowId: 5)
+    }
+
+    @Test func focusWindowThrowsWhenTheCommandFails() async throws {
+        let client = makeClient(try fakeAerospace())
+        await #expect(throws: CLIError.self) { try await client.focus(windowId: 6) }
     }
 
     @Test func snapshotGivesUpOnAHungCommand() async throws {

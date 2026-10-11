@@ -14,8 +14,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator = RefreshCoordinator(client: client, timing: config.timing) { [weak self] state in
             self?.status.render(state)
         }
-        status.onSelectWorkspace = { [weak self] name in
-            Task { await self?.coordinator.focus(workspace: name) }
+        status.onClick = { [weak self] target in
+            Task {
+                switch target {
+                case .workspace(let name): await self?.coordinator.focus(workspace: name)
+                case .app(let app, let workspace): await self?.coordinator.focus(app: app, on: workspace)
+                }
+            }
         }
         status.onRefresh = { [weak self] in self?.coordinator.nudge() }
 

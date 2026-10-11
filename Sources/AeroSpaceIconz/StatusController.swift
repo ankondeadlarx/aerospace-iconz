@@ -2,20 +2,20 @@ import AppKit
 import IconzCore
 import ServiceManagement
 
-/// Owns the status item: renders state, maps clicks to workspaces, shows the menu.
+/// Owns the status item: renders state, maps clicks to workspaces and app icons, shows the menu.
 @MainActor
 final class StatusController: NSObject {
     private let config: Config
     private let renderer: PillRenderer
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var state: BarState = .unavailable
-    /// What's currently drawn; used to map clicks to workspaces.
+    /// What's currently drawn; used to map clicks to what they act on.
     private var layout: PillLayout
     private var appearanceObservation: NSKeyValueObservation?
     private var iconRetry: Task<Void, Never>?
     private var iconRetriesLeft = 0
 
-    var onSelectWorkspace: ((WorkspaceName) -> Void)?
+    var onClick: ((ClickTarget) -> Void)?
     var onRefresh: (() -> Void)?
 
     init(config: Config) {
@@ -67,8 +67,8 @@ final class StatusController: NSObject {
             return
         }
         let point = sender.convert(event.locationInWindow, from: nil)
-        if let workspace = layout.workspace(atButtonX: point.x, buttonWidth: sender.bounds.width) {
-            onSelectWorkspace?(workspace)
+        if let target = layout.target(atButtonX: point.x, buttonWidth: sender.bounds.width) {
+            onClick?(target)
         }
     }
 

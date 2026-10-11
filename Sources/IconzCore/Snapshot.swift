@@ -32,6 +32,8 @@ public struct WindowInfo: Equatable, Sendable {
         self.appPid = appPid
         self.workspace = workspace
     }
+
+    public var appKey: AppKey { AppKey(bundleId: appBundleId, appName: appName) }
 }
 
 /// One workspace as reported by `aerospace list-workspaces`.

@@ -27,6 +27,9 @@ public final class RefreshCoordinator {
     private let publish: @MainActor (BarState) -> Void
 
     private var reducer = WorkspaceReducer()
+    /// From the last good read; tells an icon click which windows its app has. Not part of
+    /// `BarState`, so windows coming and going don't redraw.
+    private var windows: [WindowInfo] = []
     private var mode: String?
     /// The next refresh must read the mode, even the poll's.
     private var modeIsStale = true
@@ -89,6 +92,26 @@ public final class RefreshCoordinator {
         nudge()
     }
 
+    /// An icon click: focuses `app`'s oldest window on `workspace`, or its next one there if
+    /// one of them already has focus. Switches to the workspace if that can't be done.
+    public func focus(app: AppKey, on workspace: WorkspaceName) async {
+        let ids = windows.filter { $0.workspace == workspace && $0.appKey == app }.map(\.id).sorted()
+        if let target = await nextWindow(among: ids), (try? await client.focus(windowId: target)) != nil {
+            nudge()
+        } else {
+            await focus(workspace: workspace)
+        }
+    }
+
+    /// The window after the focused one in `ids` (wrapping), else the first.
+    private func nextWindow(among ids: [Int]) async -> Int? {
+        guard let first = ids.first else { return nil }
+        guard let focused = try? await client.focusedWindowId(), let index = ids.firstIndex(of: focused) else {
+            return first
+        }
+        return ids[(index + 1) % ids.count]
+    }
+
     func burst() async throws {
         let event = clock.now()
         await refresh()
@@ -119,6 +142,7 @@ public final class RefreshCoordinator {
             do {
                 async let modeRead = readsMode ? readMode() : nil
                 let snapshot = try await client.snapshot()
+                windows = snapshot.windows
                 switch await modeRead {
                 case .success(let current)?:
                     mode = current

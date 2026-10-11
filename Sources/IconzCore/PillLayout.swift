@@ -66,6 +66,13 @@ public struct Pill: Equatable, Sendable {
     public var overflowLabel: String? { overflow > 0 ? "+\(overflow)" : nil }
 }
 
+/// What a click on the bar acts on.
+public enum ClickTarget: Equatable, Sendable {
+    case workspace(WorkspaceName)
+    /// An app's icon in that workspace's pill.
+    case app(AppKey, on: WorkspaceName)
+}
+
 /// Where a pill and each of its parts go, in points from the left of the image.
 /// The renderer draws at exactly these positions, so drawing and click hit-testing can't drift.
 public struct PillFrame: Equatable, Sendable {
@@ -84,6 +91,7 @@ public struct PillLayout: Equatable, Sendable {
     public private(set) var totalWidth: Double = 0
     /// Drawn at reduced opacity: AeroSpace can't be reached.
     public private(set) var isDimmed = false
+    private var metrics: PillMetrics
 
     public init(state: BarState, config: LayoutConfig, measure: (String) -> Double) {
         switch state {
@@ -118,14 +126,18 @@ public struct PillLayout: Equatable, Sendable {
 
     private init(sources: [PillSource], config: LayoutConfig, measure: (String) -> Double) {
         // Lower the icon cap on unfocused pills one step at a time until everything fits.
-        for cap in stride(from: config.maxIconsPerPill, through: 1, by: -1) {
+        var cap = config.maxIconsPerPill
+        self = PillLayout(sources: sources, focusedCap: config.maxIconsPerPill, cap: cap,
+                          metrics: config.metrics, measure: measure)
+        while totalWidth > config.maxTotalWidth, cap > 1 {
+            cap -= 1
             self = PillLayout(sources: sources, focusedCap: config.maxIconsPerPill, cap: cap,
                               metrics: config.metrics, measure: measure)
-            if totalWidth <= config.maxTotalWidth { return }
         }
     }
 
     private init(sources: [PillSource], focusedCap: Int, cap: Int, metrics: PillMetrics, measure: (String) -> Double) {
+        self.metrics = metrics
         var x = 0.0
         for source in sources {
             let limit = source.isFocused ? focusedCap : cap
@@ -157,21 +169,31 @@ public struct PillLayout: Equatable, Sendable {
         totalWidth = x
     }
 
-    /// The workspace a click at `x` targets. Gaps are split down the middle; clicks past
-    /// either end go to the edge pill.
-    public func workspace(atX x: Double) -> WorkspaceName? {
-        for (index, frame) in frames.enumerated() {
-            let next = index + 1 < frames.count ? frames[index + 1].x : .infinity
-            let boundary = (frame.x + frame.width + next) / 2
-            if x < boundary { return pills[index].workspace }
+    /// What a click at `x` acts on: an icon (with half the icon gap on each side), else its
+    /// pill's workspace. Gaps between pills are split down the middle; clicks past either
+    /// end go to the edge pill. The badge and the placeholder have no target.
+    public func target(atX x: Double) -> ClickTarget? {
+        guard let index = pillIndex(atX: x), let workspace = pills[index].workspace else { return nil }
+        let reach = metrics.iconGap / 2
+        for (icon, iconX) in zip(pills[index].icons, frames[index].iconXs)
+        where x >= iconX - reach && x < iconX + metrics.iconSize + reach {
+            return .app(icon.key, on: workspace)
         }
-        return pills.last?.workspace
+        return .workspace(workspace)
     }
 
-    /// The workspace a click at `x` in the status item's button targets. The button can be
-    /// wider than the image, which it draws centered.
-    public func workspace(atButtonX x: Double, buttonWidth: Double) -> WorkspaceName? {
-        workspace(atX: x - (buttonWidth - totalWidth) / 2)
+    private func pillIndex(atX x: Double) -> Int? {
+        for (index, frame) in frames.enumerated() {
+            let next = index + 1 < frames.count ? frames[index + 1].x : .infinity
+            if x < (frame.x + frame.width + next) / 2 { return index }
+        }
+        return pills.indices.last
+    }
+
+    /// `target(atX:)` for a click in the status item's button. The button can be wider than
+    /// the image, which it draws centered.
+    public func target(atButtonX x: Double, buttonWidth: Double) -> ClickTarget? {
+        target(atX: x - (buttonWidth - totalWidth) / 2)
     }
 }
 

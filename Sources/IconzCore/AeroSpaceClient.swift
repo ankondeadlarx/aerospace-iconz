@@ -7,6 +7,10 @@ public protocol AeroSpaceClient: Sendable {
     /// Live events. Finishes when the subscription dies (e.g. AeroSpace quit).
     func events() -> AsyncStream<AeroSpaceEvent>
     func focus(workspace: WorkspaceName) async throws
+    /// The focused window's id, or `nil` if no window has focus.
+    func focusedWindowId() async throws -> Int?
+    /// Focuses a window, switching to its workspace.
+    func focus(windowId: Int) async throws
 }
 
 /// Monotonic time as a `Duration` since an arbitrary origin, so tests can drive it.
