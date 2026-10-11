@@ -17,7 +17,8 @@ public enum BarState: Equatable, Sendable {
 /// - Refreshes never overlap: a request during one in flight runs once more afterwards.
 /// - The binding mode is read alongside every refresh except the poll's: each mode change
 ///   fires an event, so the poll can reuse the last mode and spare a CLI call every interval.
-///   After a failed read, the next refresh of any kind reads it again.
+///   After a failed snapshot, the next refresh of any kind reads it again. A failed mode read
+///   alone waits for the next event, so a mode that can't be read never costs a call per poll.
 @MainActor
 public final class RefreshCoordinator {
     private let client: any AeroSpaceClient
@@ -123,8 +124,7 @@ public final class RefreshCoordinator {
                     mode = current
                 case .failure(let error)?:
                     // Only decides the badge: a failed read hides it, not the whole bar.
-                    if !(error is CancellationError) { mode = nil }
-                    modeIsStale = true
+                    if error is CancellationError { modeIsStale = true } else { mode = nil }
                 case nil:
                     break
                 }

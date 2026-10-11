@@ -40,15 +40,16 @@ Everything goes through the public `aerospace` CLI.
   lines (`focus-changed`, `focused-workspace-changed`, `focused-monitor-changed`,
   `window-detected`, `binding-triggered`, `mode-changed`). Restarted if it exits, after
   1 / 2 / 5 / 10 s for consecutive failures; the first event after a restart resets the backoff.
-- **State:** on any event, full re-read (two CLI calls in parallel, ~15–18 ms each):
+- **State:** on any event, full re-read (two or three CLI calls in parallel, ~15–18 ms each):
   - `aerospace list-windows --all --json --format '%{window-id} %{app-bundle-id} %{app-name} %{app-pid} %{workspace}'`
     (`--format` is required: plain `--json` omits bundle id and workspace)
   - `aerospace list-workspaces --all --json --format '%{workspace} %{workspace-is-focused} %{workspace-is-visible}'`
   - plus `aerospace list-modes --current --json` (the binding mode, for the mode badge) in
     parallel, on every re-read except the idle poll's. Every mode change fires an event, so
     the poll reuses the last mode; reading it there too cost ~0.3 % idle CPU (see Verified).
-    After a failed read (of either kind) the next re-read, poll included, reads it again.
-    The mode is decoration: if only its read fails, the badge is hidden and the bar stays available.
+    After a failed `list-*` read the next re-read, poll included, reads the mode again. The
+    mode is decoration: if only its read fails, the badge is hidden (the bar stays
+    available) until the next event re-reads it, so an unreadable mode costs no idle CPU.
   - Redraw only when the derived model differs.
   - Re-reads never overlap: one requested while another is in flight runs once, afterwards.
   - Every CLI call is killed after 2 s (`cliTimeout`), so a stuck `aerospace` can't stall
@@ -122,8 +123,9 @@ Exact values live in `Config.swift`.
   (e.g. subscription process tracking).
 - Modules:
   - `IconzCore` (pure, no AppKit), built test-first:
-    - `Snapshot`: what AeroSpace reports (`WorkspaceInfo`, `WindowInfo`, the binding mode),
-      plus the `WorkspaceName` and `AppKey` (bundle id, else app name) types.
+    - `Snapshot`: what AeroSpace reports (`WorkspaceInfo`, `WindowInfo`), plus the
+      `WorkspaceName` and `AppKey` (bundle id, else app name) types. The binding mode is
+      read separately and travels in `BarState`.
     - `CLIParsing`: CLI arguments and JSON decoding; `LineSplitter` for the `subscribe` stream.
     - `WorkspaceReducer`: snapshot → workspace groups (filtering, dedupe, stable icon order).
     - `PillLayout`: groups or unavailable state → pills with every position (mode badge, `+N`,
@@ -137,7 +139,7 @@ Exact values live in `Config.swift`.
     `StatusController` (status item, clicks, menu), `LaunchAtLogin` (menu item per
     `SMAppService` status), `AppDelegate` (wiring, sleep/lock/app-quit notifications,
     SIGTERM), `DebugRender`.
-- Seam: `AeroSpaceClient` (`snapshot()`, `events()`, `focus(workspace:)`). The real
+- Seam: `AeroSpaceClient` (`snapshot()`, `mode()`, `events()`, `focus(workspace:)`). The real
   implementation runs the CLI; tests use a fake. Time goes through `MonotonicClock`
   (`SystemClock` in the app, a manually advanced fake in tests).
 - Debug: `AeroSpaceIconz --render-png <dir> [--mode <name>]` reads the live AeroSpace, renders
@@ -193,8 +195,8 @@ Each feature: spec change here → test-first in `IconzCore` → `make test` →
 → `make install` and live with it for a day. On a short-lived branch, `/code-review`,
 merged locally, then tagged.
 
-1. **v1.1 Mode badge** (above). Rule: idle CPU over 5 minutes may not rise measurably
-   above v1 (≈0.1 % average). Reading the mode on every poll broke it, so the poll skips it.
+1. **v1.1 Mode badge** (above). Rule: idle CPU over 5 minutes may not rise above v1 by
+   more than ≈0.1 % average. Reading the mode on every poll broke it, so the poll skips it.
 2. **v1.2 Click an icon to focus.** `focus --window-id` on that app's oldest window on
    that workspace; if that app is already focused there, cycle to its next window. The
    focused window is read at click time (`list-windows --focused`), not kept in the model.

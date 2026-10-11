@@ -49,6 +49,7 @@ struct PillRenderer {
                 let inset = config.visibleStrokeWidth / 2
                 let path = NSBezierPath(roundedRect: rect.insetBy(dx: inset, dy: inset),
                                         xRadius: metrics.cornerRadius, yRadius: metrics.cornerRadius)
+                var textColor = label
                 switch pill.emphasis {
                 case .fill:
                     label.withAlphaComponent(config.focusedFillAlpha).setFill()
@@ -60,12 +61,12 @@ struct PillRenderer {
                 case .badge:
                     NSColor.systemOrange.setFill()
                     path.fill()
+                    textColor = .white
                 case .none:
                     break
                 }
 
-                drawText(pill.label, at: frame.labelX, height: metrics.pillHeight, font: font,
-                         color: pill.emphasis == .badge ? .white : label)
+                drawText(pill.label, at: frame.labelX, height: metrics.pillHeight, font: font, color: textColor)
                 for (icon, x) in zip(images[index], frame.iconXs) {
                     let y = (metrics.pillHeight - metrics.iconSize) / 2
                     icon.draw(in: NSRect(x: x, y: y, width: metrics.iconSize, height: metrics.iconSize))

@@ -168,7 +168,12 @@ private func visibleGroup(_ name: String) -> WorkspaceGroup {
         let layout = PillLayout(state: .workspaces([group("1", apps: 0, focused: true)], mode: "service"),
                                 config: config(), measure: measure)
         #expect(layout.pills[0].workspace == nil)
+        // Badge spans 0–80, pill "1" 86–106: the badge's side of the gap and past the left
+        // end do nothing, the rest still switches.
+        #expect(layout.workspace(atX: -5) == nil)
         #expect(layout.workspace(atX: 40) == nil)
+        #expect(layout.workspace(atX: 82) == nil)
+        #expect(layout.workspace(atX: 84) == "1")
         #expect(layout.workspace(atX: 90) == "1")
     }
 

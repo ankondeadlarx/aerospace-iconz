@@ -241,15 +241,19 @@ private func eventually(
         #expect(published.states == [.workspaces([focusedOne], mode: "service")])
     }
 
-    @Test func failedModeReadHidesTheBadgeAndTheNextRefreshRetries() async {
+    @Test func failedModeReadHidesTheBadgeUntilTheNextEvent() async {
         let client = FakeClient()
         client.mode = "service"
         client.modeFailure = Unreachable()
         let (coordinator, published) = makeCoordinator(client)
         await coordinator.refresh()
         #expect(published.states == [.workspaces([focusedOne], mode: nil)])
+        // A mode read that keeps failing (e.g. an AeroSpace without `list-modes`) must not
+        // add a CLI call to every poll.
         client.modeFailure = nil
         await coordinator.refresh(readingMode: false)
+        #expect(client.modeCalls == 1)
+        await coordinator.refresh()
         #expect(published.states.last == .workspaces([focusedOne], mode: "service"))
     }
 
@@ -419,6 +423,17 @@ private func eventually(
         clock.advance(by: .seconds(60) - .milliseconds(600))
         await eventually { client.snapshotCalls == 4 }
         await eventually { clock.pendingDeadlines.contains(.seconds(120)) }
+    }
+
+    @Test func eventReadsTheMode() async {
+        let client = FakeClient(), clock = ManualClock()
+        let coordinator = await start(client, clock)
+        defer { coordinator.stop() }
+        clock.advance(by: .milliseconds(600))  // let the start-up burst finish
+        await eventually { client.modeCalls == 3 }
+
+        client.emit()  // e.g. `mode-changed`
+        await eventually { client.modeCalls == 4 }
     }
 
     @Test func pollDoesNotReadTheMode() async {
