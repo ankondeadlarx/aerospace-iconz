@@ -21,8 +21,6 @@ public struct Config: Sendable {
     public var iconRetryDelay: Duration
     public var iconRetryLimit: Int
 
-    /// Gap between the status item and the top of its right-click menu.
-    public var menuVerticalOffset: Double
     /// Window titles longer than this many characters are cut in the middle.
     public var windowMenuTitleLength: Int
     /// App icons in the window menu, in points (the standard menu image size).
@@ -61,7 +59,6 @@ public struct Config: Sendable {
         unavailableAlpha: 0.4,
         iconRetryDelay: .seconds(1),
         iconRetryLimit: 5,
-        menuVerticalOffset: 4,
         windowMenuTitleLength: 60,
         windowMenuIconSize: 16,
         statusItemAutosaveName: "AeroSpaceIconz",

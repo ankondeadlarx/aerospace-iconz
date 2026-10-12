@@ -70,23 +70,24 @@ final class StatusController: NSObject {
         guard let event = NSApp.currentEvent else { return }
         let x = sender.convert(event.locationInWindow, from: nil).x
         let width = sender.bounds.width
+        let pillLeft = layout.pillLeft(atButtonX: x, buttonWidth: width) ?? 0
         if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
-            openMenu(for: layout.workspace(atButtonX: x, buttonWidth: width))
+            openMenu(for: layout.workspace(atButtonX: x, buttonWidth: width), pillLeft: pillLeft)
             return
         }
         switch layout.target(atButtonX: x, buttonWidth: width) {
-        case .windowMenu(let workspace)?: openMenu(for: workspace)
+        case .windowMenu(let workspace)?: openMenu(for: workspace, pillLeft: pillLeft)
         case .select(let selection)?: onSelect?(selection)
         case nil: break
         }
     }
 
-    /// Shows the menu, with `workspace`'s windows on top (read first) when there is one.
-    /// Ignored while another menu is opening or open.
-    private func openMenu(for workspace: WorkspaceName?) {
+    /// Shows the menu, with `workspace`'s windows on top (read first) when there is one, under
+    /// the clicked pill (`pillLeft`, in button points). Ignored while another menu is opening or open.
+    private func openMenu(for workspace: WorkspaceName?, pillLeft: Double) {
         guard menuGate.requestMenu() else { return }
         guard let workspace, let readWindowMenu else {
-            showMenu(windows: nil)
+            showMenu(windows: nil, pillLeft: pillLeft)
             menuGate.menuClosed()
             return
         }
@@ -96,15 +97,16 @@ final class StatusController: NSObject {
             // runs until it closes, and refreshes on the main actor must keep running meanwhile.
             RunLoop.main.perform(inModes: [.default]) {
                 MainActor.assumeIsolated {
-                    self?.showMenu(windows: windows)
+                    self?.showMenu(windows: windows, pillLeft: pillLeft)
                     self?.menuGate.menuClosed()
                 }
             }
         }
     }
 
-    /// Returns once the menu has closed.
-    private func showMenu(windows: WindowMenu?) {
+    /// Returns once the menu has closed. A window menu opens under its workspace's pill as
+    /// drawn now (the read may have taken a refresh), else under the pill that was clicked.
+    private func showMenu(windows: WindowMenu?, pillLeft clickedPillLeft: Double) {
         guard let button = statusItem.button else { return }
         let menu = NSMenu()
         if let windows {
@@ -118,7 +120,16 @@ final class StatusController: NSObject {
         login.state = launchAtLogin.state
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit AeroSpaceIconz", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + config.menuVerticalOffset), in: button)
+        let pillLeft = windows.flatMap { layout.pillLeft(of: $0.workspace, buttonWidth: button.bounds.width) }
+            ?? clickedPillLeft
+        guard let window = button.window, let screen = window.screen else {
+            menu.popUp(positioning: nil, at: NSPoint(x: pillLeft, y: button.bounds.height), in: button)
+            return
+        }
+        let buttonOnScreen = window.convertToScreen(button.convert(button.bounds, to: nil))
+        let origin = MenuOrigin(buttonMinX: buttonOnScreen.minX, pillLeft: pillLeft,
+                                barBottom: window.frame.minY, visibleTop: screen.visibleFrame.maxY)
+        menu.popUp(positioning: nil, at: NSPoint(x: origin.x, y: origin.y), in: nil)
     }
 
     /// The workspace header, then one row per window (or a disabled row saying why there are none).

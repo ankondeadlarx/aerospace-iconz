@@ -171,6 +171,28 @@ private func visibleGroup(_ name: String) -> WorkspaceGroup {
         #expect(PillLayout(state: .unavailable, config: config(), measure: measure).workspace(atX: 5) == nil)
     }
 
+    @Test func menuStartsUnderThePillTheClickFinds() {
+        // Badge 0–80, pill "1" 86–106, pill "2" 112–132, centered in a 152 pt button: +10.
+        let layout = PillLayout(state: .workspaces([group("1", apps: 0, focused: true), group("2", apps: 0)], mode: "service"),
+                                config: config(), measure: measure)
+        #expect(layout.pillLeft(atButtonX: 50, buttonWidth: 152) == 10)
+        #expect(layout.pillLeft(atButtonX: 100, buttonWidth: 152) == 96)
+        #expect(layout.pillLeft(atButtonX: 118, buttonWidth: 152) == 96)
+        #expect(layout.pillLeft(atButtonX: 120, buttonWidth: 152) == 122)
+        #expect(layout.pillLeft(atButtonX: 151, buttonWidth: 152) == 122)
+        #expect(layout.pillLeft(atButtonX: 0, buttonWidth: 152) == 10)
+        #expect(PillLayout(state: .unavailable, config: config(), measure: measure)
+            .pillLeft(atButtonX: 5, buttonWidth: 20) == 0)
+    }
+
+    @Test func windowMenuFindsItsWorkspacesPillWhenItOpens() {
+        // Badge 0–80, pill "1" 86–106, pill "2" 112–132, centered in a 152 pt button: +10.
+        let layout = PillLayout(state: .workspaces([group("1", apps: 0, focused: true), group("2", apps: 0)], mode: "service"),
+                                config: config(), measure: measure)
+        #expect(layout.pillLeft(of: "2", buttonWidth: 152) == 122)
+        #expect(layout.pillLeft(of: "3", buttonWidth: 152) == nil)
+    }
+
     @Test func clickOnTheBadgeOrPlaceholderHasNoTarget() {
         let badged = PillLayout(state: .workspaces([group("1", apps: 1, focused: true)], mode: "service"),
                                 config: config(), measure: measure)

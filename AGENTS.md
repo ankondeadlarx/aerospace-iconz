@@ -42,5 +42,7 @@ them). Ask first before `workspace`, `move-node-*`, `reload-config`, or editing
 - `aerospace subscribe` children outlive a killed app; every one goes through
   `Subscriptions` so Quit and SIGTERM can kill them.
 - `list-windows --json` without `--format` omits bundle id and workspace.
+- On notched Macs the menu bar (37 pt) is taller than the status button (22 pt): place menus
+  from the screen's bar edge (`MenuOrigin`), not the button's height, or they open scrolled.
 - In `#expect`, comparing a `Double?` against an integer-literal sum failed spuriously;
   bind the expected value to a typed `let` first.

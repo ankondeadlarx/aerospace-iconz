@@ -207,6 +207,20 @@ public struct PillLayout: Equatable, Sendable {
         workspace(atX: imageX(atButtonX: x, buttonWidth: buttonWidth))
     }
 
+    /// Where the menu for a click at `x` in the button starts: the left edge, in button
+    /// points, of the pill the click lands on (found as `target(atX:)` finds it), badge and
+    /// placeholder included. `nil` only when there are no pills.
+    public func pillLeft(atButtonX x: Double, buttonWidth: Double) -> Double? {
+        pillIndex(atX: imageX(atButtonX: x, buttonWidth: buttonWidth))
+            .map { frames[$0].x + (buttonWidth - totalWidth) / 2 }
+    }
+
+    /// The left edge, in button points, of `workspace`'s pill; `nil` when it has none.
+    public func pillLeft(of workspace: WorkspaceName, buttonWidth: Double) -> Double? {
+        pills.firstIndex { $0.workspace == workspace }
+            .map { frames[$0].x + (buttonWidth - totalWidth) / 2 }
+    }
+
     private func pillIndex(atX x: Double) -> Int? {
         for (index, frame) in frames.enumerated() {
             let next = index + 1 < frames.count ? frames[index + 1].x : .infinity

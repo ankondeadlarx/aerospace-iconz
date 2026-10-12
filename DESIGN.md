@@ -157,6 +157,14 @@ Exact values live in `Config.swift`.
     a separator, Quit.
   - Launch at Login is checked when enabled. When macOS needs the user to allow it, it shows
     mixed with "(Allow in System Settings…)" and opens Login Items. A failed toggle shows an alert.
+  - Placement (`MenuOrigin`): the menu's top edge is flush with the bottom of the menu bar on
+    the button's screen, taken from the screen (the lower of the status item window's bottom
+    and the visible frame's top), never from the button: on notched Macs the 22 pt button
+    sits centered in a 37 pt bar, and a menu reaching into the bar opens scrolled behind a
+    scroll arrow, then jumps down on hover. Its left edge is the left edge of the pill the
+    click found (badge and placeholder included); a window menu looks its workspace's pill up
+    again when it opens, falling back to where the clicked pill was. Near the screen's right
+    edge AppKit shifts it left to fit.
 
 ## Engineering
 
@@ -176,8 +184,9 @@ Exact values live in `Config.swift`.
     - `WorkspaceReducer`: snapshot → workspace groups (filtering, dedupe, stable icon order).
     - `PillLayout`: groups or unavailable state → pills with every position (mode badge, `+N`,
       width-fit, hit-testing: a `Selection` (workspace or app icon) or `+N`'s window menu; and
-      the workspace a right-click lands on). The placeholder and the badge have no workspace:
-      a left-click on them does nothing, a right-click opens only the global items.
+      the workspace a right-click lands on, and its pill's left edge for the menu). The
+      placeholder and the badge have no workspace: a left-click on them does nothing, a
+      right-click opens only the global items.
     - `WindowMenu`: a workspace's titled windows → header, rows (order, label, truncation,
       focus) and the notice shown when there are none.
     - `RefreshCoordinator`: when to re-read (events, bursts, poll, pause reasons, reconnect
@@ -185,6 +194,7 @@ Exact values live in `Config.swift`.
       window to focus, or which workspace); reads window menus (`windowMenu(for:)`) within
       `windowMenuTimeout`.
     - `MenuGate`: one status item menu at a time, from the click until it closes.
+    - `MenuOrigin`: where the menu opens on screen, flush under the menu bar.
     - `AeroSpaceClient` and `MonotonicClock` seams, `Config`.
   - `AeroSpaceIconz` (executable, AppKit, thin glue): `CLIClient` (runs the CLI with a
     timeout), `Subscriptions` (live `subscribe` children), `IconCache`, `PillRenderer`,
